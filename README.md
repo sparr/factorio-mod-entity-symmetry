@@ -32,6 +32,6 @@ Mirroring axes. 0 = neither, 1 = X, 2 = Y, 3 = both.
 - **S**  
 Degree of rotational symmetry. Default is 4, 2 is also useful. Other numbers 
 are pretty but not practical.
-- **item**
+- **item**  
 Positive signal will copy only the signaled item(s). Negative signal will 
 exclude the signaled item(s) from copying.

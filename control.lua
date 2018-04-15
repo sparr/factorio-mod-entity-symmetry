@@ -1,5 +1,13 @@
 require "util"
 
+-- Concepts:
+-- "direction" is an integer, 0-7, representing North, Northeast, ..., West, Northwest
+-- "orientation" is a float, where 0 represents North, 0.25 East, 0.5 South, 0.75 West
+-- "angle" is a float, where 0 represents North, PI/2 East, PI South, 3*PI/2 West
+-- position is a table with x and y coordinates, each a float
+-- +x is East
+-- +y is South
+
 -- we're going to refer to these a lot
 local N, NE, E, SE, S, SW, W, NW =
   defines.direction.north,
@@ -11,6 +19,7 @@ local N, NE, E, SE, S, SW, W, NW =
   defines.direction.west,
   defines.direction.northwest
 
+-- inline arithmetic would be faster, but this is better than a function call
 local direction_to_orientation = {
   [N]  = 0,
   [NE] = 0.125,
@@ -26,6 +35,7 @@ local function orientation_to_direction(ori)
   return math.floor(ori * 8 + 0.5)
 end
 
+-- curved rail directions are a little weird, so mirroring them requires a lookup
 local direction_curvedrail_mirror_x =
   {[N]=NE,[NE]=N,[E]=NW,[SE]=W,[S]=SW,[SW]=S,[W]=SE,[NW]=E}
 local direction_curvedrail_mirror_y =
@@ -80,7 +90,6 @@ local rail_entity_types = {
 }
 
 local orientation_snap = {[0.125]={}, [0.25]={}}
-
 for entity_type, od_type in pairs(orientation_direction_types) do
   if od_type == 8 then
     orientation_snap[0.125][entity_type] = true
@@ -168,9 +177,18 @@ local function orient_position_relative(center, position, orientation)
   return delta
 end
 
+local center_mem = {tick=0,centers={}}
+
 local function on_altered_entity(params)
   local event = params.event
   local entity = event.created_entity and event.created_entity or event.entity
+  local surface = entity.surface
+  if center_mem.tick ~= event.tick then
+    center_mem.centers = surface.find_entities_filtered{name="symmetry-center"}
+    center_mem.tick = event.tick
+  end
+  local centers = center_mem.centers
+  local no_centers = 0
   --TODO mod settings for defaults
   if entity.name == "symmetry-center" and params.action == "built" then
     local cb = entity.get_control_behavior()
@@ -192,13 +210,20 @@ local function on_altered_entity(params)
     if cb.get_signal(6).signal == nil then
       cb.set_signal(6, {signal={type="virtual",name="signal-S"}, count="4"})
     end
+    no_centers = 1
   end
-  local surface = entity.surface
-  local centers = surface.find_entities_filtered{name="symmetry-center"}
+  if #centers==no_centers then return end
   local rail_entity = rail_entity_types[entity.type]
   local rail_mode = rail_entity
   for _,center_entity in ipairs(centers) do
     if center_entity == entity then goto next_center_entity end
+    if not center_entity.valid then goto next_center_entity end
+    --TODO configurable max range
+    if math.abs(entity.position.x - center_entity.position.x) > 1000 or
+       math.abs(entity.position.y - center_entity.position.y) > 1000
+    then
+      goto next_center_entity
+    end
     --TODO mod settings for defaults
     local center_dir = -1
     local range = 64
