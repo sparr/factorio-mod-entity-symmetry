@@ -32,7 +32,7 @@ local direction_to_orientation = {
 }
 
 local function orientation_to_direction(ori)
-  return math.floor(ori * 8 + 0.5)
+  return math.floor(ori * 8 + 0.5)%8
 end
 
 -- curved rail directions are a little weird, so mirroring them requires a lookup
@@ -77,6 +77,7 @@ local orientation_direction_types = {
   ["steam-turbine"]         = 2,
 }
 
+-- entities that exist on the 2x2 rail grid
 local rail_entity_types = {
   ["straight-rail"]     = true,
   ["curved-rail"]       = true,
@@ -89,6 +90,7 @@ local rail_entity_types = {
   ["artillery-wagon"]   = true,
 }
 
+-- lookup for what angle to snap entity orientations to
 local orientation_snap = {[0.125]={}, [0.25]={}}
 for entity_type, od_type in pairs(orientation_direction_types) do
   if od_type == 8 then
@@ -98,8 +100,19 @@ for entity_type, od_type in pairs(orientation_direction_types) do
   end
 end
 
+-- given an entity type and its current direction and orientation
+-- return the direction and orientation after optional mirroring/rotation
+-- sym_x for east/west mirror
+-- sym_y for north/south/mirror
+-- reori for rotation, 0.25 = 90 degrees clockwise
 local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y, reori)
   if not orientation_direction_types[entity_type] then return 0,0 end
+  -- rail signals need to be rotated 180 if they are mirrored once
+  if (entity_type == "rail-signal" or entity_type == "rail-chain-signal") and
+    ((sym_x and not sym_y) or (sym_y and not sym_x))
+  then
+    reori = (reori or 0) + 0.5
+  end
   if reori then -- rotation
     local od_type = orientation_direction_types[entity_type]
     if od_type == 0 then
@@ -117,25 +130,25 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
     end
     dir = (dir + dir_reori*8)%8
     ori = (ori + dir_reori)%1
-  else -- mirroring
+  end
+  if sym_x then
     if entity_type == "curved-rail" then
-      if sym_x then
-        dir = direction_curvedrail_mirror_x[dir]
-      end
-      if sym_y then
-        dir = direction_curvedrail_mirror_y[dir]
-      end
-      ori = direction_to_orientation[dir]
+      dir = direction_curvedrail_mirror_x[dir]
     else
-      if sym_x then
-        dir = (8 - dir)%8
-        ori = (1 - ori)%1
-      end
-      if sym_y then
-        dir = ((8-((dir-2)%8))+2)%8
-        ori = ((1-((ori-0.25)%1))+0.25)%1
-      end
+      dir = (8 - dir)%8
+      ori = (1 - ori)%1
     end
+  end
+  if sym_y then
+    if entity_type == "curved-rail" then
+      dir = direction_curvedrail_mirror_y[dir]
+    else
+      dir = ((8-((dir-2)%8))+2)%8
+      ori = ((1-((ori-0.25)%1))+0.25)%1
+    end
+  end
+  if entity_type == "curved-rail" then
+    ori = direction_to_orientation[dir]
   end
   if od_type == 2 or entity_type == "straight-rail" then
     -- these types never point south/west
@@ -145,6 +158,8 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
   return dir, ori
 end
 
+-- given two positions, orbit one around the other
+-- orientation 0.25 = 90 degrees clockwise
 local function orient_position_relative(center, position, orientation)
   delta = table.deepcopy(position)
   delta.x = delta.x - center.x
@@ -177,6 +192,7 @@ local function orient_position_relative(center, position, orientation)
   return delta
 end
 
+-- remember all the symmetry-center entities for this tick
 local center_mem = {tick=0,centers={}}
 
 local function on_altered_entity(params)
@@ -202,13 +218,7 @@ local function on_altered_entity(params)
       cb.set_signal(3, {signal={type="virtual",name="signal-R"}, count="0"})
     end
     if cb.get_signal(4).signal == nil then
-      cb.set_signal(4, {signal={type="virtual",name="signal-M"}, count="0"})
-    end
-    if cb.get_signal(5).signal == nil then
-      cb.set_signal(5, {signal={type="virtual",name="signal-X"}, count="3"})
-    end
-    if cb.get_signal(6).signal == nil then
-      cb.set_signal(6, {signal={type="virtual",name="signal-S"}, count="4"})
+      cb.set_signal(4, {signal={type="virtual",name="signal-S"}, count="4"})
     end
     no_centers = 1
   end
@@ -228,13 +238,13 @@ local function on_altered_entity(params)
     local center_dir = -1
     local range = 64
     local configured_rail_mode = 0
-    local symmetry = 4
-    local mirror = false
-    local xaxis_mirror = true
-    local yaxis_mirror = true
+    local rot_symmetry = 4
+    local xaxis_mirror = false
+    local yaxis_mirror = false
     local include = {}
     local exclude = {}
     local cb = center_entity.get_control_behavior()
+    local rail_signal_slot = 3
     for n=1,cb.signals_count do
       local sig = cb.get_signal(n)
       if sig.signal then
@@ -247,28 +257,32 @@ local function on_altered_entity(params)
         elseif sig.signal.name == "signal-R" then
           -- optionally turn on or off [R]ail mode for all entities
           configured_rail_mode = sig.count
+          rail_signal_slot = n
         elseif sig.signal.name == "signal-S" then
-          -- Degree of rotational [S]ymmetry
-          symmetry = sig.count
-        elseif sig.signal.name == "signal-M" then
-          -- [M]irror or rotate(default)
-          if sig.count > 0 then
-            mirror = true
-          end
-        elseif sig.signal.name == "signal-X" then
-          -- set mirroring a[X]es
-          if     sig.count == 0 then
+          -- type and degree/axes of [S]ymmetry
+          if sig.count > 0 then -- rotational symmetry degree
+            rot_symmetry = sig.count
             xaxis_mirror = false
             yaxis_mirror = false
-          elseif sig.count == 1 then
-            xaxis_mirror = true
-            yaxis_mirror = false
-          elseif sig.count == 2 then
+          elseif sig.count < 0 then -- mirroring, x/y axes
+            rot_symmetry = 0
+            if sig.count == -1 then
+              xaxis_mirror = true
+              yaxis_mirror = false
+            elseif sig.count == -2 then
+              xaxis_mirror = false
+              yaxis_mirror = true
+            elseif sig.count == -3 then
+              xaxis_mirror = true
+              yaxis_mirror = true
+            else
+              xaxis_mirror = false
+              yaxis_mirror = false
+            end
+          else -- nothing
+            rot_symmetry = 0
             xaxis_mirror = false
-            yaxis_mirror = true
-          elseif sig.count == 3 then
-            xaxis_mirror = true
-            yaxis_mirror = true
+            yaxis_mirror = false
           end
         elseif sig.signal.type == "item" then
           -- negative item signals exclude the item
@@ -299,7 +313,7 @@ local function on_altered_entity(params)
       then
         if rail_mode then
           if configured_rail_mode == 0 then
-            cb.set_signal(3, {signal={type="virtual",name="signal-R"}, count="1"})
+            cb.set_signal(rail_signal_slot, {signal={type="virtual",name="signal-R"}, count="1"})
           end
         elseif configured_rail_mode > 0 then
           rail_mode = true
@@ -331,7 +345,7 @@ local function on_altered_entity(params)
         local positions = {table.deepcopy(entity.position)}
         local directions = {entity.direction}
         local orientations = {entity.orientation}
-        if mirror then
+        if xaxis_mirror or yaxis_mirror then
           if xaxis_mirror then
             for n=1,#positions do
               local new_position = table.deepcopy(positions[n])
@@ -362,25 +376,23 @@ local function on_altered_entity(params)
               orientations[#orientations+1] = ori
             end
           end
-        else -- rotation instead of mirroring
-          if symmetry > 1 then
-            local rot_direction = directions[1]
-            local rot_orientation = orientations[1]
-            for r=1,symmetry-1 do
-              positions[#positions+1] = orient_position_relative(
-                center_position,
-                positions[1],
-                r/symmetry
-              )
-              local dir, ori = get_mirrotated_entity_dir_ori(
-                entity.type,
-                directions[1],
-                orientations[1],
-                false, false, r*(1/symmetry)
-              )
-              directions[#directions+1] = dir
-              orientations[#orientations+1] = ori
-            end
+        elseif rot_symmetry > 1 then -- rotational symmetry instead of mirroring
+          local rot_direction = directions[1]
+          local rot_orientation = orientations[1]
+          for r=1,rot_symmetry-1 do
+            positions[#positions+1] = orient_position_relative(
+              center_position,
+              positions[1],
+              r/rot_symmetry
+            )
+            local dir, ori = get_mirrotated_entity_dir_ori(
+              entity.type,
+              directions[1],
+              orientations[1],
+              false, false, r*(1/rot_symmetry)
+            )
+            directions[#directions+1] = dir
+            orientations[#orientations+1] = ori
           end
         end
         -- now actually make or remove the additional entities

@@ -25,13 +25,10 @@ numbers are circular distance, positive square.
 Rail entities are always placed on a 2x2 grid. This setting controls whether 
 other entities honor that grid. -1 is never. 1 is always. 0 is not until a 
 rail entity is placed then it automatically becomes 1.
-- **M**  
-Mirroring instead of rotational symmetry
-- **X**  
-Mirroring axes. 0 = neither, 1 = X, 2 = Y, 3 = both.
 - **S**  
-Degree of rotational symmetry. Default is 4, 2 is also useful. Other numbers 
-are pretty but not practical.
+Type of Symmetry. 0 = None. Positive = rotation, 4 and 2 are useful, other 
+numbers are just pretty. Negative = mirror, -1 = east/west, -2 = north/south, 
+-3 = both.
 - **item**  
 Positive signal will copy only the signaled item(s). Negative signal will 
 exclude the signaled item(s) from copying.
