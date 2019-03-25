@@ -13,7 +13,6 @@ data:extend(
     icon = "__base__/graphics/icons/signal/shape_square.png",
     icon_size = 32,
     place_result = "symmetry-center",
-    flags = {"goes-to-main-inventory"},
     subgroup = "circuit-network",
     order = "c[combinators]-z[symmetry-center]",
     stack_size = 10
