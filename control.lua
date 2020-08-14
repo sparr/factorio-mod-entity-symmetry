@@ -410,22 +410,9 @@ local function on_altered_entity(params)
               direction = dir,
               force = entity.force,
               inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil,
-              -- temporarily disabled due to non support by Creative Mod
-              --raise_built = true,
+              raise_built = true,
               --TODO type-specific attributes
             }
-            if new_entity then
-              -- temporary compatibility with Creative Mod
-              -- create a "real" build event instead of script_raised_built disabled above
-              script.raise_event(defines.events.on_built_entity,{
-                created_entity = new_entity,
-                player_index = event.player_index,
-                stack = event.stack,
-                -- flag to avoid infinite recursion
-                script = true,
-                }
-              )
-            end
           elseif params.action == "player_mined" then
             local found_entities = surface.find_entities_filtered{
               area = {{positions[n].x-0.5,positions[n].y-0.5},{positions[n].x+0.5,positions[n].y+0.5}},
