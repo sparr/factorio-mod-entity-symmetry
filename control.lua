@@ -194,6 +194,7 @@ local function on_altered_entity(event, action, manual)
   local entity = event.created_entity or event.entity or event.source
   local surface = entity.surface
   local centers = global.cached_center_entities
+  local player = event.player_index and game.players[event.player_index] or nil
 
   if entity.name == "symmetry-center" then
     if action == "create" then
@@ -203,10 +204,34 @@ local function on_altered_entity(event, action, manual)
         if control_behavior_empty(cb) then
           -- set some default signals for a new manually placed empty symmetry-center
           -- maybe this should also trigger for new empty symmetry-center ghosts?
-          cb.set_signal(1, {signal={type="virtual", name="signal-C"}, count="-1"})
-          cb.set_signal(2, {signal={type="virtual", name="signal-D"}, count="64"})
-          cb.set_signal(3, {signal={type="virtual", name="signal-R"}, count="0"})
-          cb.set_signal(4, {signal={type="virtual", name="signal-S"}, count="4"})
+          cb.set_signal(1, {
+            signal={type="virtual", name="signal-C"},
+            count=tostring(
+              player and player.mod_settings['entity-symmetry-default-center'].value
+              or settings.player['entity-symmetry-default-center'].value
+            )
+          })
+          cb.set_signal(2, {
+            signal={type="virtual", name="signal-D"},
+            count=tostring(
+              player and player.mod_settings['entity-symmetry-default-distance'].value
+              or settings.player['entity-symmetry-default-distance'].value
+            )
+          })
+          cb.set_signal(3, {
+            signal={type="virtual", name="signal-R"},
+            count=tostring(
+              player and player.mod_settings['entity-symmetry-default-rails'].value
+              or settings.player['entity-symmetry-default-rails'].value
+            )
+          })
+          cb.set_signal(4, {
+            signal={type="virtual", name="signal-S"},
+            count=tostring(
+              player and player.mod_settings['entity-symmetry-default-symmetry'].value
+              or settings.player['entity-symmetry-default-symmetry'].value
+            )
+          })
         end
       end
     end
@@ -220,10 +245,14 @@ local function on_altered_entity(event, action, manual)
         centers[i] = nil
       elseif center_entity.surface.name == entity.surface.name then
         if center_entity ~= entity then
-          local center_dir = -1
-          local range = 64
-          local configured_rail_mode = 0
-          local rot_symmetry = 4
+          local center_dir = ( player and player.mod_settings['entity-symmetry-default-center'].value
+            or settings.player['entity-symmetry-default-center'].value )
+          local range = ( player and player.mod_settings['entity-symmetry-default-distance'].value
+            or settings.player['entity-symmetry-default-distance'].value )
+          local configured_rail_mode = ( player and player.mod_settings['entity-symmetry-default-rails'].value
+            or settings.player['entity-symmetry-default-rails'].value )
+          local rot_symmetry = ( player and player.mod_settings['entity-symmetry-default-symmetry'].value
+            or settings.player['entity-symmetry-default-symmetry'].value )
           local xaxis_mirror = false
           local yaxis_mirror = false
           local include = {}
