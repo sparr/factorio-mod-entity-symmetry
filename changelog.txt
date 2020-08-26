@@ -1,7 +1,17 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.1
+Date: ????
+  Features:
+    - Added support for diagonal symmetry
+    - Added mod settings to change default symmetry settings
+  Optimisations:
+    - Cache symmetry entries when created/destroyed
+    - Code cleanup and deduplication
+
+---------------------------------------------------------------------------------------------------
 Version: 1.0.0
 Date: 2020-08-14
   Changes:
     - Update for 0.18 / 1.0
     - Remove Creative Mod compatibility hack with entity creation events
----------------------------------------------------------------------------------------------------
+
