@@ -111,8 +111,8 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
   then
     reori = (reori or 0) + 0.5
   end
-  if reori then -- rotation
     local od_type = orientation_direction_types[entity_type]
+  if reori then -- rotation
     if od_type == 0 then
       return 0, (ori + reori) % 1
     end
@@ -154,7 +154,7 @@ end
 -- given two positions, orbit one around the other
 -- orientation 0.25 = 90 degrees clockwise
 local function orient_position_relative(center, position, orientation)
-  delta = table.deepcopy(position)
+  local delta = table.deepcopy(position)
   delta.x = delta.x - center.x
   delta.y = delta.y - center.y
   orientation = orientation % 1
@@ -169,7 +169,7 @@ local function orient_position_relative(center, position, orientation)
   else
     -- trig time
     local magnitude = (delta.x * delta.x + delta.y * delta.y) ^ 0.5
-    angle = orientation * math.pi * 2
+    local angle = orientation * math.pi * 2
     angle = math.atan2(delta.x, delta.y) + angle
     delta.x = math.sin(angle) * magnitude
     delta.y = math.cos(angle) * magnitude
@@ -318,33 +318,33 @@ local function on_altered_entity(params)
           local orientations = {entity.orientation}
           if xaxis_mirror or yaxis_mirror then
             if xaxis_mirror then
-              for n=1, #positions do
+                  for n = 1, #positions do
                 local new_position = table.deepcopy(positions[n])
                 new_position.x = center_position.x - (new_position.x - center_position.x)
-                positions[#positions+1] = new_position
+                    positions[#positions + 1] = new_position
                 local dir, ori = get_mirrotated_entity_dir_ori(
                   entity.type,
                   directions[n],
                   orientations[n],
                   true, false, false
                 )
-                directions[#directions+1] = dir
-                orientations[#orientations+1] = ori
+                    directions[#directions + 1] = dir
+                    orientations[#orientations + 1] = ori
               end
             end
             if yaxis_mirror then
-              for n=1, #positions do
+                  for n = 1, #positions do
                 local new_position = table.deepcopy(positions[n])
                 new_position.y = center_position.y - (new_position.y - center_position.y)
-                positions[#positions+1] = new_position
+                    positions[#positions + 1] = new_position
                 local dir, ori = get_mirrotated_entity_dir_ori(
                   entity.type,
                   directions[n],
                   orientations[n],
                   false, true, false
                 )
-                directions[#directions+1] = dir
-                orientations[#orientations+1] = ori
+                    directions[#directions + 1] = dir
+                    orientations[#orientations + 1] = ori
               end
             end
           elseif rot_symmetry > 1 then -- rotational symmetry instead of mirroring
@@ -429,7 +429,7 @@ script.on_event(defines.events.on_built_entity, on_built_entity)
 script.on_event(defines.events.on_player_mined_entity, on_player_mined_entity)
 
 -- local debugnum = 0
--- local function debug(...)
+-- local function debug_write(...)
 --   if game and game.players[1] then
 --     game.players[1].print("DEBUG " .. debugnum .. " " .. game.tick .. ": " .. serpent.line(..., {comment=false}))
 --     debugnum = debugnum + 1
