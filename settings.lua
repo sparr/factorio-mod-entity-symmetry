@@ -27,7 +27,7 @@ data:extend(
       name          = "entity-symmetry-default-symmetry",
       setting_type  = "runtime-per-user",
       default_value = 4,
-      minimum_value = -3,
+      minimum_value = -15,
     },
   }
 )

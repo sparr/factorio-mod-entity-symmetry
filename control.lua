@@ -255,6 +255,8 @@ local function on_altered_entity(event, action, manual)
             or settings.player['entity-symmetry-default-symmetry'].value )
           local xaxis_mirror = false
           local yaxis_mirror = false
+          local diag1_mirror = false
+          local diag2_mirror = false
           local include = {}
           local exclude = {}
           local cb = center_entity.get_control_behavior()
@@ -276,18 +278,12 @@ local function on_altered_entity(event, action, manual)
                 -- type and degree/axes of [S]ymmetry
                 if parameter.count >= 0 then -- rotational symmetry degree
                   rot_symmetry = parameter.count
-                else -- mirroring, x/y axes
+                else -- mirroring, x/y axes, diagonals
                   rot_symmetry = 0
-                  if parameter.count == -1 then
-                    xaxis_mirror = true
-                  elseif parameter.count == -2 then
-                    yaxis_mirror = true
-                  elseif parameter.count == -3 then
-                    xaxis_mirror = true
-                    yaxis_mirror = true
-                  else
-                    -- nothing for now
-                  end
+                  if bit32.band(1, -parameter.count) > 0 then xaxis_mirror = true end
+                  if bit32.band(2, -parameter.count) > 0 then yaxis_mirror = true end
+                  if bit32.band(4, -parameter.count) > 0 then diag1_mirror = true end
+                  if bit32.band(8, -parameter.count) > 0 then diag2_mirror = true end
                 end
               elseif parameter.signal.type == "item" then
                 -- negative item signals exclude the item
@@ -351,7 +347,7 @@ local function on_altered_entity(event, action, manual)
               local positions = {table.deepcopy(entity.position)}
               local directions = {entity.direction}
               local orientations = {entity.orientation}
-              if xaxis_mirror or yaxis_mirror then
+              if rot_symmetry == 0 then
                 if xaxis_mirror then
                   for n = 1, #positions do
                     local new_position = table.deepcopy(positions[n])
@@ -380,6 +376,28 @@ local function on_altered_entity(event, action, manual)
                     )
                     directions[#directions + 1] = dir
                     orientations[#orientations + 1] = ori
+                  end
+                end
+                if diag1_mirror then
+                  for n = 1, #positions do
+                    local new_position = table.deepcopy(positions[n])
+                    new_position.x, new_position.y =
+                      center_position.x - (new_position.y - center_position.y),
+                      center_position.y - (new_position.x - center_position.x)
+                    positions[#positions + 1] = new_position
+                    directions[#directions + 1] = ((entity.type == "curved-rail" and 3 or 2) - directions[n]) % 8
+                    orientations[#orientations + 1] = (-orientations[n] + 0.25) % 1
+                  end
+                end
+                if diag2_mirror then
+                  for n = 1, #positions do
+                    local new_position = table.deepcopy(positions[n])
+                    new_position.x, new_position.y =
+                      center_position.x + (new_position.y - center_position.y),
+                      center_position.y + (new_position.x - center_position.x)
+                    positions[#positions + 1] = new_position
+                    directions[#directions + 1] = ((entity.type == "curved-rail" and 7 or 6) - directions[n]) % 8
+                    orientations[#orientations + 1] = (-orientations[n] + 0.75) % 1
                   end
                 end
               elseif rot_symmetry > 1 then -- rotational symmetry instead of mirroring

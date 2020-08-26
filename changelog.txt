@@ -2,6 +2,7 @@
 Version: 1.0.1
 Date: ????
   Features:
+    - Added support for diagonal symmetry
     - Added mod settings to change default symmetry settings
   Optimisations:
     - Cache symmetry entries when created/destroyed

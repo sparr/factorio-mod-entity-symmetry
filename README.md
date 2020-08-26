@@ -28,7 +28,7 @@ rail entity is placed then it automatically becomes 1.
 - **S**  
 Type of Symmetry. 0 = None. Positive = rotation, 4 and 2 are useful, other 
 numbers are just pretty. Negative = mirror, -1 = east/west, -2 = north/south, 
--3 = both.
+-4 and -8 are diagonal, add together for multiple mirrors.
 - **item**  
 Positive signal will copy only the signaled item(s). Negative signal will 
 exclude the signaled item(s) from copying.
