@@ -2,6 +2,7 @@
 Version: 1.0.1
 Date: ????
   Optimisations:
+    - Cache symmetry entries when created/destroyed
     - Code cleanup and deduplication
 
 ---------------------------------------------------------------------------------------------------

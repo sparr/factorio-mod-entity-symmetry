@@ -111,7 +111,7 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
   then
     reori = (reori or 0) + 0.5
   end
-    local od_type = orientation_direction_types[entity_type]
+  local od_type = orientation_direction_types[entity_type]
   if reori then -- rotation
     if od_type == 0 then
       return 0, (ori + reori) % 1
@@ -178,255 +178,296 @@ local function orient_position_relative(center, position, orientation)
   return delta
 end
 
--- remember all the symmetry-center entities for this tick
-local center_mem = {tick = 0, centers = {}}
+local function cache_center_entity(entity)
+  if entity.valid ~= true then return end
+  global.cached_center_entities[script.register_on_entity_destroyed(entity)] = entity
+end
 
-local function on_altered_entity(params)
-  local event = params.event
-  local entity = event.created_entity and event.created_entity or event.entity
+local function control_behavior_empty(control_behavior)
+  for _, parameter in pairs(control_behavior.parameters.parameters) do -- API bug, maybe to be fixed in 1.1
+    if parameter.signal.name then return false end
+  end
+  return true
+end
+
+local function on_altered_entity(event, action, manual)
+  local entity = event.created_entity or event.entity or event.source
   local surface = entity.surface
-  if center_mem.tick ~= event.tick then
-    center_mem.centers = surface.find_entities_filtered{name="symmetry-center"}
-    center_mem.tick = event.tick
-  end
-  local centers = center_mem.centers
-  if entity.name == "symmetry-center" and params.action == "built" then
-    local cb = entity.get_control_behavior()
-    if cb.get_signal(1).signal == nil then
-      cb.set_signal(1, {signal={type="virtual", name="signal-C"}, count="-1"})
-    end
-    if cb.get_signal(2).signal == nil then
-      cb.set_signal(2, {signal={type="virtual", name="signal-D"}, count="64"})
-    end
-    if cb.get_signal(3).signal == nil then
-      cb.set_signal(3, {signal={type="virtual", name="signal-R"}, count="0"})
-    end
-    if cb.get_signal(4).signal == nil then
-      cb.set_signal(4, {signal={type="virtual", name="signal-S"}, count="4"})
-    end
-    if #centers == 0 then return end
-  end
-  local rail_mode = rail_entity_types[entity.type] or false
-  for _, center_entity in ipairs(centers) do
-    if center_entity ~= entity and center_entity.valid then
-      local center_dir = -1
-      local range = 64
-      local configured_rail_mode = 0
-      local rot_symmetry = 4
-      local xaxis_mirror = false
-      local yaxis_mirror = false
-      local include = {}
-      local exclude = {}
-      local cb = center_entity.get_control_behavior()
-      local rail_signal_slot = 3
-      for n=1, cb.signals_count do
-        local sig = cb.get_signal(n)
-        if sig.signal then
-          if sig.signal.name == "signal-C" then
-            -- move the [C]enter point to an edge/corner of the tile
-            center_dir = sig.count
-          elseif sig.signal.name == "signal-D" then
-            -- set the [D]istance/range
-            range = sig.count
-          elseif sig.signal.name == "signal-R" then
-            -- optionally turn on or off [R]ail mode for all entities
-            configured_rail_mode = sig.count
-            rail_signal_slot = n
-          elseif sig.signal.name == "signal-S" then
-            -- type and degree/axes of [S]ymmetry
-            if sig.count >= 0 then -- rotational symmetry degree
-              rot_symmetry = sig.count
-              xaxis_mirror = false
-              yaxis_mirror = false
-            else -- mirroring, x/y axes
-              rot_symmetry = 0
-              if sig.count == -1 then
-                xaxis_mirror = true
-                yaxis_mirror = false
-              elseif sig.count == -2 then
-                xaxis_mirror = false
-                yaxis_mirror = true
-              elseif sig.count == -3 then
-                xaxis_mirror = true
-                yaxis_mirror = true
-              else
-                xaxis_mirror = false
-                yaxis_mirror = false
-              end
-            end
-          elseif sig.signal.type == "item" then
-            -- negative item signals exclude the item
-            -- positive filter for just those items
-            if sig.count < 0 then
-              exclude.some = true
-              exclude[sig.signal.name] = true
-            else
-              include.some = true
-              include[sig.signal.name] = true
-            end
-          end
+  local centers = global.cached_center_entities
+
+  if entity.name == "symmetry-center" then
+    if action == "create" then
+      cache_center_entity(entity)
+      if manual then
+        local cb = entity.get_control_behavior()
+        if control_behavior_empty(cb) then
+          -- set some default signals for a new manually placed empty symmetry-center
+          -- maybe this should also trigger for new empty symmetry-center ghosts?
+          cb.set_signal(1, {signal={type="virtual", name="signal-C"}, count="-1"})
+          cb.set_signal(2, {signal={type="virtual", name="signal-D"}, count="64"})
+          cb.set_signal(3, {signal={type="virtual", name="signal-R"}, count="0"})
+          cb.set_signal(4, {signal={type="virtual", name="signal-S"}, count="4"})
         end
       end
-      local center_position = table.deepcopy(center_entity.position)
-      -- rail grid is 2x2, find the center of the rail tile
-      if rail_mode or configured_rail_mode > 0 then
-        center_position.x = math.floor(((center_position.x - 1) / 2) + 0.5) * 2 + 1
-        center_position.y = math.floor(((center_position.y - 1) / 2) + 0.5) * 2 + 1
-      end
-      -- negative range is circular, positive is square
-      if (range>0 and ((entity.position.x - center_position.x)^2 + (entity.position.y - center_position.y)^2) <= range*range) or
-        (math.abs(entity.position.x - center_position.x) <= range and math.abs(entity.position.y - center_position.y) <= range)
-      then
-        if (not include.some and not exclude.some) or
-          (include.some and (include[entity.name] or ((entity.name=="straight-rail" or entity.name=="curved-rail") and include["rail"]))) or
-          (not include.some and exclude.some and not (exclude[entity.name] or ((entity.name=="straight-rail" or entity.name=="curved-rail") and exclude["rail"])))
-        then
-          if rail_mode then
-            if configured_rail_mode == 0 then
-              cb.set_signal(rail_signal_slot, {signal={type="virtual", name="signal-R"}, count="1"})
-            end
-          elseif configured_rail_mode > 0 then
-            rail_mode = true
-          end
-          local conditional_rail_offset = rail_mode and 1 or 0.5
-          if center_dir >=0 and center_dir <= 7 then
-            -- move the [C]enter point to an edge/corner of the tile
-            if     center_dir == 1 then
-              center_position.x = center_position.x + conditional_rail_offset
-              center_position.y = center_position.y - conditional_rail_offset
-            elseif center_dir == 3 then
-              center_position.x = center_position.x + conditional_rail_offset
-              center_position.y = center_position.y + conditional_rail_offset
-            elseif center_dir == 5 then
-              center_position.x = center_position.x - conditional_rail_offset
-              center_position.y = center_position.y + conditional_rail_offset
-            elseif center_dir == 7 then
-              center_position.x = center_position.x - conditional_rail_offset
-              center_position.y = center_position.y - conditional_rail_offset
-            elseif center_dir == 0 then
-              center_position.y = center_position.y - conditional_rail_offset
-            elseif center_dir == 2 then
-              center_position.x = center_position.x + conditional_rail_offset
-            elseif center_dir == 4 then
-              center_position.y = center_position.y + conditional_rail_offset
-            elseif center_dir == 6 then
-              center_position.x = center_position.x - conditional_rail_offset
-            end
-          end
-          local positions = {table.deepcopy(entity.position)}
-          local directions = {entity.direction}
-          local orientations = {entity.orientation}
-          if xaxis_mirror or yaxis_mirror then
-            if xaxis_mirror then
-                  for n = 1, #positions do
-                local new_position = table.deepcopy(positions[n])
-                new_position.x = center_position.x - (new_position.x - center_position.x)
-                    positions[#positions + 1] = new_position
-                local dir, ori = get_mirrotated_entity_dir_ori(
-                  entity.type,
-                  directions[n],
-                  orientations[n],
-                  true, false, false
-                )
-                    directions[#directions + 1] = dir
-                    orientations[#orientations + 1] = ori
-              end
-            end
-            if yaxis_mirror then
-                  for n = 1, #positions do
-                local new_position = table.deepcopy(positions[n])
-                new_position.y = center_position.y - (new_position.y - center_position.y)
-                    positions[#positions + 1] = new_position
-                local dir, ori = get_mirrotated_entity_dir_ori(
-                  entity.type,
-                  directions[n],
-                  orientations[n],
-                  false, true, false
-                )
-                    directions[#directions + 1] = dir
-                    orientations[#orientations + 1] = ori
-              end
-            end
-          elseif rot_symmetry > 1 then -- rotational symmetry instead of mirroring
-            local rot_direction = directions[1]
-            local rot_orientation = orientations[1]
-            for r = 1, rot_symmetry - 1 do
-              positions[#positions + 1] = orient_position_relative(
-                center_position,
-                positions[1],
-                r / rot_symmetry
-              )
-              local dir, ori = get_mirrotated_entity_dir_ori(
-                entity.type,
-                directions[1],
-                orientations[1],
-                false, false, r * (1 / rot_symmetry)
-              )
-              directions[#directions + 1] = dir
-              orientations[#orientations + 1] = ori
-            end
-          end
-          -- now actually make or remove the additional entities
-          for n = 2, #positions do
-            if params.action == "built" then
-              local pos = positions[n]
-              local dir = entity.supports_direction and directions[n] or 0
-              if orientation_direction_types[entity.type] == 0 then
-                -- smooth turning entities are spawned with a direction
-                dir = orientation_to_direction(orientations[n])
-              end
-              local new_entity = surface.create_entity{
-                name = entity.name,
-                position = pos,
-                direction = dir,
-                force = entity.force,
-                inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil,
-                raise_built = true,
-                --TODO type-specific attributes
-              }
-            elseif params.action == "player_mined" then
-              local found_entities = surface.find_entities_filtered{
-                area = {{positions[n].x - 0.5, positions[n].y - 0.5}, {positions[n].x + 0.5, positions[n].y + 0.5}},
-                name = entity.name,
-                type = entity.type,
-                force = entity.force.name,
-              }
-              if #found_entities then
-                for _, found_entity in ipairs(found_entities) do
-                  if found_entity.position.x == positions[n].x and found_entity.position.y == positions[n].y then
-                    if found_entity.orientation == orientations[n] then
-                      if (not entity.supports_direction) or (found_entity.direction == directions[n]) then
-                        found_entity.destroy()
-                      end
-                    end
+    end
+    return -- disallow cloning symmetry-centers to avoid infinite recursion for now
+  end
+  if manual then
+    local rail_mode = rail_entity_types[entity.type] or false
+    local new_centers = {}
+    for i, center_entity in pairs(centers) do
+      if not center_entity.valid then
+        centers[i] = nil
+      elseif center_entity.surface.name == entity.surface.name then
+        if center_entity ~= entity then
+          local center_dir = -1
+          local range = 64
+          local configured_rail_mode = 0
+          local rot_symmetry = 4
+          local xaxis_mirror = false
+          local yaxis_mirror = false
+          local include = {}
+          local exclude = {}
+          local cb = center_entity.get_control_behavior()
+          local rail_signal_slot = 3
+
+          for _, parameter in pairs(cb.parameters.parameters) do
+            if parameter.signal.name then
+              if parameter.signal.name == "signal-C" then
+                -- move the [C]enter point to an edge/corner of the tile
+                center_dir = parameter.count
+              elseif parameter.signal.name == "signal-D" then
+                -- set the [D]istance/range
+                range = parameter.count
+              elseif parameter.signal.name == "signal-R" then
+                -- optionally turn on or off [R]ail mode for all entities
+                configured_rail_mode = parameter.count
+                rail_signal_slot = parameter.index
+              elseif parameter.signal.name == "signal-S" then
+                -- type and degree/axes of [S]ymmetry
+                if parameter.count >= 0 then -- rotational symmetry degree
+                  rot_symmetry = parameter.count
+                else -- mirroring, x/y axes
+                  rot_symmetry = 0
+                  if parameter.count == -1 then
+                    xaxis_mirror = true
+                  elseif parameter.count == -2 then
+                    yaxis_mirror = true
+                  elseif parameter.count == -3 then
+                    xaxis_mirror = true
+                    yaxis_mirror = true
+                  else
+                    -- nothing for now
                   end
                 end
-              else
-                -- debug("no centers to delete")
+              elseif parameter.signal.type == "item" then
+                -- negative item signals exclude the item
+                -- positive filter for just those items
+                if parameter.count < 0 then
+                  exclude.some = true
+                  exclude[parameter.signal.name] = true
+                else
+                  include.some = true
+                  include[parameter.signal.name] = true
+                end
               end
-            else
-              -- debug("unrecognized action " .. params.action)
+            end
+          end
+          local center_position = table.deepcopy(center_entity.position)
+          -- rail grid is 2x2, find the center of the rail tile
+          if rail_mode or configured_rail_mode > 0 then
+            center_position.x = math.floor(((center_position.x - 1) / 2) + 0.5) * 2 + 1
+            center_position.y = math.floor(((center_position.y - 1) / 2) + 0.5) * 2 + 1
+          end
+          -- negative range is circular, positive is square
+          if (range>0 and ((entity.position.x - center_position.x)^2 + (entity.position.y - center_position.y)^2) <= range*range) or
+            (math.abs(entity.position.x - center_position.x) <= range and math.abs(entity.position.y - center_position.y) <= range)
+          then
+            if (not include.some and not exclude.some) or
+              (include.some and (include[entity.name] or ((entity.name=="straight-rail" or entity.name=="curved-rail") and include["rail"]))) or
+              (not include.some and exclude.some and not (exclude[entity.name] or ((entity.name=="straight-rail" or entity.name=="curved-rail") and exclude["rail"])))
+            then
+              if rail_mode then
+                if configured_rail_mode == 0 then
+                  cb.set_signal(rail_signal_slot, {signal={type="virtual", name="signal-R"}, count="1"})
+                end
+              elseif configured_rail_mode > 0 then
+                rail_mode = true
+              end
+              local conditional_rail_offset = rail_mode and 1 or 0.5
+              if center_dir >=0 and center_dir <= 7 then
+                -- move the [C]enter point to an edge/corner of the tile
+                if     center_dir == 1 then
+                  center_position.x = center_position.x + conditional_rail_offset
+                  center_position.y = center_position.y - conditional_rail_offset
+                elseif center_dir == 3 then
+                  center_position.x = center_position.x + conditional_rail_offset
+                  center_position.y = center_position.y + conditional_rail_offset
+                elseif center_dir == 5 then
+                  center_position.x = center_position.x - conditional_rail_offset
+                  center_position.y = center_position.y + conditional_rail_offset
+                elseif center_dir == 7 then
+                  center_position.x = center_position.x - conditional_rail_offset
+                  center_position.y = center_position.y - conditional_rail_offset
+                elseif center_dir == 0 then
+                  center_position.y = center_position.y - conditional_rail_offset
+                elseif center_dir == 2 then
+                  center_position.x = center_position.x + conditional_rail_offset
+                elseif center_dir == 4 then
+                  center_position.y = center_position.y + conditional_rail_offset
+                elseif center_dir == 6 then
+                  center_position.x = center_position.x - conditional_rail_offset
+                end
+              end
+              local positions = {table.deepcopy(entity.position)}
+              local directions = {entity.direction}
+              local orientations = {entity.orientation}
+              if xaxis_mirror or yaxis_mirror then
+                if xaxis_mirror then
+                  for n = 1, #positions do
+                    local new_position = table.deepcopy(positions[n])
+                    new_position.x = center_position.x - (new_position.x - center_position.x)
+                    positions[#positions + 1] = new_position
+                    local dir, ori = get_mirrotated_entity_dir_ori(
+                      entity.type,
+                      directions[n],
+                      orientations[n],
+                      true, false, false
+                    )
+                    directions[#directions + 1] = dir
+                    orientations[#orientations + 1] = ori
+                  end
+                end
+                if yaxis_mirror then
+                  for n = 1, #positions do
+                    local new_position = table.deepcopy(positions[n])
+                    new_position.y = center_position.y - (new_position.y - center_position.y)
+                    positions[#positions + 1] = new_position
+                    local dir, ori = get_mirrotated_entity_dir_ori(
+                      entity.type,
+                      directions[n],
+                      orientations[n],
+                      false, true, false
+                    )
+                    directions[#directions + 1] = dir
+                    orientations[#orientations + 1] = ori
+                  end
+                end
+              elseif rot_symmetry > 1 then -- rotational symmetry instead of mirroring
+                local rot_direction = directions[1]
+                local rot_orientation = orientations[1]
+                for r = 1, rot_symmetry - 1 do
+                  positions[#positions + 1] = orient_position_relative(
+                    center_position,
+                    positions[1],
+                    r / rot_symmetry
+                  )
+                  local dir, ori = get_mirrotated_entity_dir_ori(
+                    entity.type,
+                    directions[1],
+                    orientations[1],
+                    false, false, r * (1 / rot_symmetry)
+                  )
+                  directions[#directions + 1] = dir
+                  orientations[#orientations + 1] = ori
+                end
+              end
+              -- now actually make or remove the additional entities
+              for n = 2, #positions do
+                if action == "create" then
+                  local pos = positions[n]
+                  local dir = entity.supports_direction and directions[n] or 0
+                  if orientation_direction_types[entity.type] == 0 then
+                    -- smooth turning entities are spawned with a direction
+                    dir = orientation_to_direction(orientations[n])
+                  end
+
+                  -- can't use clone because rail entities can't change direction after creation
+                  -- local new_entity = entity.clone{position = pos}
+                  -- new_entity.direction = dir
+
+                  --TODO type-specific attributes
+                  local new_entity = surface.create_entity{
+                    name = entity.name,
+                    position = pos,
+                    direction = dir,
+                    force = entity.force,
+                    inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil,
+                    raise_built = true,
+                  }
+
+                  if entity.name == "symmetry-center" then
+                    new_centers[#new_centers+1] = new_entity
+                  end
+                elseif action == "destroy" then
+                  local found_entities = surface.find_entities_filtered{
+                    area = {{positions[n].x - 0.5, positions[n].y - 0.5}, {positions[n].x + 0.5, positions[n].y + 0.5}},
+                    name = entity.name,
+                    type = entity.type,
+                    force = entity.force.name,
+                  }
+                  if #found_entities then
+                    for _, found_entity in ipairs(found_entities) do
+                      if found_entity.position.x == positions[n].x and found_entity.position.y == positions[n].y then
+                        if found_entity.orientation == orientations[n] then
+                          if (not entity.supports_direction) or (found_entity.direction == directions[n]) then
+                            found_entity.destroy()
+                          end
+                        end
+                      end
+                    end
+                  else
+                    -- debug("no centers to delete")
+                  end
+                else
+                  -- debug("unrecognized action " .. params.action)
+                end
+              end
             end
           end
         end
       end
     end
+    for _, new_center in pairs(new_centers) do
+      cache_center_entity(new_center)
+    end
   end
 end
 
-local function on_built_entity(event)
-  on_altered_entity{event = event, action = "built"}
+local function on_entity_destroyed(event)
+  global.cached_center_entities[event.registration_number] = nil
 end
 
-local function on_player_mined_entity(event)
-  on_altered_entity{event = event, action = "player_mined"}
+local function on_configuration_changed(event)
+  if global.cached_center_entities == nil then
+    global.cached_center_entities = {}
+    for _,surface in pairs(game.surfaces) do
+      local centers = surface.find_entities_filtered{name="symmetry-center"}
+      for _, center in pairs(centers) do
+        cache_center_entity(center)
+      end
+    end
+  end
 end
 
---TODO handle bots
 --TODO handle rotation and reconfiguration events for entities
---TODO handle script_raised_built script_raised_destroy
-script.on_event(defines.events.on_built_entity, on_built_entity)
-script.on_event(defines.events.on_player_mined_entity, on_player_mined_entity)
+
+-- handle all ways an entity can be built so that we catch new symmetry-center entities being created
+-- only on_built_entity will actually trigger symmetric cloning
+script.on_event(defines.events.on_built_entity,       function(event) on_altered_entity(event, "create", true) end)
+script.on_event(defines.events.on_robot_built_entity, function(event) on_altered_entity(event, "create", false) end)
+script.on_event(defines.events.on_entity_cloned,      function(event) on_altered_entity(event, "create", false) end)
+script.on_event(defines.events.script_raised_built,   function(event) on_altered_entity(event, "create", false) end)
+script.on_event(defines.events.script_raised_revive,  function(event) on_altered_entity(event, "create", false) end)
+
+-- removal of symmetry-center is handled by registering entity-specific destruction events when they are created
+-- so we only need to watch for player mining entities to trigger symmetric removal
+script.on_event(defines.events.on_player_mined_entity, function(event) on_altered_entity(event, "destroy", true) end)
+
+script.on_event(defines.events.on_entity_destroyed, on_entity_destroyed)
+
+script.on_init(on_configuration_changed)
+script.on_configuration_changed(on_configuration_changed)
 
 -- local debugnum = 0
 -- local function debug_write(...)
