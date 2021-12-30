@@ -184,7 +184,7 @@ local function cache_center_entity(entity)
 end
 
 local function control_behavior_empty(control_behavior)
-  for _, parameter in pairs(control_behavior.parameters.parameters) do -- API bug, maybe to be fixed in 1.1
+  for _, parameter in pairs(control_behavior.parameters) do -- API bug, maybe to be fixed in 1.1
     if parameter.signal.name then return false end
   end
   return true
@@ -262,7 +262,7 @@ local function on_altered_entity(event, action, manual)
           local cb = center_entity.get_control_behavior()
           local rail_signal_slot = 3
 
-          for _, parameter in pairs(cb.parameters.parameters) do
+          for _, parameter in pairs(cb.parameters) do
             if parameter.signal.name then
               if parameter.signal.name == "signal-C" then
                 -- move the [C]enter point to an edge/corner of the tile
