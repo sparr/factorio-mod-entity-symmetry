@@ -429,22 +429,28 @@ local function on_altered_entity(event, action, manual)
                     dir = orientation_to_direction(orientations[n])
                   end
 
-                  -- can't use clone because rail entities can't change direction after creation
-                  -- local new_entity = entity.clone{position = pos}
-                  -- new_entity.direction = dir
+                  if positions[1].x ~= positions[n].x or 
+                     positions[1].y ~= positions[n].y or 
+                     (entity.supports_direction and entity.direction ~= directions[n]) or
+                     orientations[1] ~= orientations[n] then
+            
+                    -- can't use clone because rail entities can't change direction after creation
+                    -- local new_entity = entity.clone{position = pos}
+                    -- new_entity.direction = dir
 
-                  --TODO type-specific attributes
-                  local new_entity = surface.create_entity{
-                    name = entity.name,
-                    position = pos,
-                    direction = dir,
-                    force = entity.force,
-                    inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil,
-                    raise_built = true,
-                  }
+                    --TODO type-specific attributes
+                    local new_entity = surface.create_entity{
+                      name = entity.name,
+                      position = pos,
+                      direction = dir,
+                      force = entity.force,
+                      inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil,
+                      raise_built = true,
+                    }
 
-                  if entity.name == "symmetry-center" then
-                    new_centers[#new_centers+1] = new_entity
+                    if entity.name == "symmetry-center" then
+                      new_centers[#new_centers+1] = new_entity
+                    end
                   end
                 elseif action == "destroy" then
                   local found_entities = surface.find_entities_filtered{
@@ -455,10 +461,14 @@ local function on_altered_entity(event, action, manual)
                   }
                   if #found_entities then
                     for _, found_entity in ipairs(found_entities) do
-                      if found_entity.position.x == positions[n].x and found_entity.position.y == positions[n].y then
-                        if found_entity.orientation == orientations[n] then
-                          if (not entity.supports_direction) or (found_entity.direction == directions[n]) then
-                            found_entity.destroy()
+                      if found_entity.valid then
+                        if found_entity.position.x == positions[n].x and found_entity.position.y == positions[n].y then
+                          if found_entity.orientation == orientations[n] then
+                            if (not entity.supports_direction) or (found_entity.direction == directions[n]) then
+                              if found_entity ~= entity then
+                                found_entity.destroy()
+                              end
+                            end
                           end
                         end
                       end

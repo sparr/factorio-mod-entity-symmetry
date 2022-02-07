@@ -1,7 +1,9 @@
 ---------------------------------------------------------------------------------------------------
 Version: 1.1.2
 Date: ????
-  Changes:
+  Bugfixes:
+    - Resolve crash bug when destroying coincident entities
+    - Skip creating coincident (same position, orientation) entities
 ---------------------------------------------------------------------------------------------------
 Version: 1.1.1
 Date: 2021-12-30
