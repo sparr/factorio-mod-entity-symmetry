@@ -72,6 +72,7 @@ local orientation_direction_types = {
   ["ammo-turret"]           = 4,
   ["fluid-turret"]          = 4,
   ["artillery-turret"]      = 4,
+  ["simple-entity-with-owner"] = 4,
   ["storage-tank"]          = 2,
   ["steam-engine"]          = 2,
   ["steam-turbine"]         = 2,
@@ -112,6 +113,9 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
     reori = (reori or 0) + 0.5
   end
   local od_type = orientation_direction_types[entity_type]
+  if od_type == nil then
+    od_type = 4 -- weak assumption about unknown entity types
+  end
   if reori then -- rotation
     if od_type == 0 then
       return 0, (ori + reori) % 1
@@ -238,7 +242,7 @@ local function on_altered_entity(event, action, manual)
     return -- disallow cloning symmetry-centers to avoid infinite recursion for now
   end
   if manual then
-    local rail_mode = rail_entity_types[entity.type] or false
+    local rail_mode = rail_entity_types[entity.type] or game.entity_prototypes[entity.type].building_grid_bit_shift == 2 or false
     local new_centers = {}
     for i, center_entity in pairs(centers) do
       if not center_entity.valid then
@@ -430,11 +434,11 @@ local function on_altered_entity(event, action, manual)
                     dir = orientation_to_direction(orientations[n])
                   end
 
-                  if positions[1].x ~= positions[n].x or 
-                     positions[1].y ~= positions[n].y or 
+                  if positions[1].x ~= positions[n].x or
+                     positions[1].y ~= positions[n].y or
                      (entity.supports_direction and entity.direction ~= directions[n]) or
                      orientations[1] ~= orientations[n] then
-            
+
                     -- can't use clone because rail entities can't change direction after creation
                     -- local new_entity = entity.clone{position = pos}
                     -- new_entity.direction = dir
