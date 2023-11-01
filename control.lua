@@ -260,6 +260,7 @@ local function on_altered_entity(event, action, manual)
           local include = {}
           local exclude = {}
           local cb = center_entity.get_control_behavior()
+          if not cb.enabled then goto next_center_entity end
           local rail_signal_slot = 3
 
           for _, parameter in pairs(cb.parameters) do
@@ -474,16 +475,17 @@ local function on_altered_entity(event, action, manual)
                       end
                     end
                   else
-                    -- debug("no centers to delete")
+                    -- debug_write("no centers to delete")
                   end
                 else
-                  -- debug("unrecognized action " .. params.action)
+                  -- debug_write("unrecognized action " .. params.action)
                 end
               end
             end
           end
         end
       end
+      ::next_center_entity::
     end
     for _, new_center in pairs(new_centers) do
       cache_center_entity(new_center)
