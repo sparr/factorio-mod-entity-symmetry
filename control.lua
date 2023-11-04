@@ -42,6 +42,7 @@ local direction_curvedrail_mirror_y =
   {[N]=SW, [NE]=S, [E]=SE, [SE]=E, [S]=NE, [SW]=N, [W]=NW, [NW]=W}
 
 -- how many directions/orientations can each entity type point
+-- 0 means smooth rotation, mostly for vehicles
 local orientation_direction_types = {
   ["car"]                   = 0,
   ["tank"]                  = 0,
@@ -78,12 +79,6 @@ local orientation_direction_types = {
   ["steam-turbine"]         = 2,
 }
 
--- look up the number of directions an entity can rotate
--- default to 4 for unknown entity types
-local function get_orientation_direction(type)
-  return orientation_direction_types[type] or 4
-end
-
 -- lookup for what angle to snap entity orientations to
 local orientation_snap = {
   [0] = 0,
@@ -111,19 +106,22 @@ local rail_entity_types = {
 -- sym_y for north/south/mirror
 -- reori for rotation, 0.25 = 90 degrees clockwise
 local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y, reori)
+  local od_type = orientation_direction_types[entity_type]
+  if od_type == nil then
+    return 0, 0
+  end
   -- rail signals need to be rotated 180 if they are mirrored once
   if (entity_type == "rail-signal" or entity_type == "rail-chain-signal") and
     ((sym_x and not sym_y) or (sym_y and not sym_x))
   then
     reori = (reori or 0) + 0.5
   end
-  local od_type = get_orientation_direction(entity_type)
   if reori then -- rotation
     if od_type == 0 then
       return 0, (ori + reori) % 1
     end
     local dir_reori = reori
-    local snap_ori = orientation_snap[get_orientation_direction(entity_type)]
+    local snap_ori = orientation_snap[orientation_direction_types[entity_type]]
     if snap_ori > 0 then -- round to nearest multiple of snap_ori
       dir_reori = math.floor((reori + (snap_ori / 2)) / snap_ori) * snap_ori
     end
@@ -431,7 +429,7 @@ local function on_altered_entity(event, action, manual)
                 if action == "create" then
                   local pos = positions[n]
                   local dir = entity.supports_direction and directions[n] or 0
-                  if get_orientation_direction(entity.type) == 0 then
+                  if orientation_direction_types[entity.type] == 0 then
                     -- smooth turning entities are spawned with a direction
                     dir = orientation_to_direction(orientations[n])
                   end
