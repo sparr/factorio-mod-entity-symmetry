@@ -29,5 +29,17 @@ data:extend(
       default_value = 4,
       minimum_value = -15,
     },
+    {
+      type          = "bool-setting",
+      name          = "entity-symmetry-allow-cheat",
+      setting_type  = "runtime-global",
+      default_value = false,
+    },
+    {
+      type          = "bool-setting",
+      name          = "entity-symmetry-cheat",
+      setting_type  = "runtime-per-user",
+      default_value = false,
+    },
   }
 )

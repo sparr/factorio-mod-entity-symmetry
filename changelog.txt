@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.0.0
+Date: 2023-11-05
+  Features:
+    - Place ghosts and deconstruct orders by default
+    - Map and player option to do direct entity create/destroy
+---------------------------------------------------------------------------------------------------
 Version: 1.2.2
 Date: 2023-11-03
   Bugfixes:

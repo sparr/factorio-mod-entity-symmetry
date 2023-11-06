@@ -100,6 +100,10 @@ local rail_entity_types = {
   ["artillery-wagon"]   = true,
 }
 
+local function deghost_type(entity)
+  return entity.type == "entity-ghost" and entity.ghost_name or entity.type
+end
+
 -- given an entity type and its current direction and orientation
 -- return the direction and orientation after optional mirroring/rotation
 -- sym_x for east/west mirror
@@ -242,7 +246,7 @@ local function on_altered_entity(event, action, manual)
     return -- disallow cloning symmetry-centers to avoid infinite recursion for now
   end
   if manual then
-    local rail_mode = rail_entity_types[entity.type] or entity.prototype.building_grid_bit_shift == 2 or false
+    local rail_mode = rail_entity_types[deghost_type(entity)] or entity.prototype.building_grid_bit_shift == 2 or false
     local new_centers = {}
     for i, center_entity in pairs(centers) do
       if not center_entity.valid then
@@ -359,7 +363,7 @@ local function on_altered_entity(event, action, manual)
                     new_position.x = center_position.x - (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
                     local dir, ori = get_mirrotated_entity_dir_ori(
-                      entity.type,
+                      deghost_type(entity),
                       directions[n],
                       orientations[n],
                       true, false, false
@@ -374,7 +378,7 @@ local function on_altered_entity(event, action, manual)
                     new_position.y = center_position.y - (new_position.y - center_position.y)
                     positions[#positions + 1] = new_position
                     local dir, ori = get_mirrotated_entity_dir_ori(
-                      entity.type,
+                      deghost_type(entity),
                       directions[n],
                       orientations[n],
                       false, true, false
@@ -390,7 +394,7 @@ local function on_altered_entity(event, action, manual)
                       center_position.x - (new_position.y - center_position.y),
                       center_position.y - (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    directions[#directions + 1] = ((entity.type == "curved-rail" and 3 or 2) - directions[n]) % 8
+                    directions[#directions + 1] = ((deghost_type(entity) == "curved-rail" and 3 or 2) - directions[n]) % 8
                     orientations[#orientations + 1] = (-orientations[n] + 0.25) % 1
                   end
                 end
@@ -401,7 +405,7 @@ local function on_altered_entity(event, action, manual)
                       center_position.x + (new_position.y - center_position.y),
                       center_position.y + (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    directions[#directions + 1] = ((entity.type == "curved-rail" and 7 or 6) - directions[n]) % 8
+                    directions[#directions + 1] = ((deghost_type(entity) == "curved-rail" and 7 or 6) - directions[n]) % 8
                     orientations[#orientations + 1] = (-orientations[n] + 0.75) % 1
                   end
                 end
@@ -415,7 +419,7 @@ local function on_altered_entity(event, action, manual)
                     r / rot_symmetry
                   )
                   local dir, ori = get_mirrotated_entity_dir_ori(
-                    entity.type,
+                    deghost_type(entity),
                     directions[1],
                     orientations[1],
                     false, false, r * (1 / rot_symmetry)
@@ -424,12 +428,13 @@ local function on_altered_entity(event, action, manual)
                   orientations[#orientations + 1] = ori
                 end
               end
+              local cheat = settings.global["entity-symmetry-allow-cheat"].value and player.mod_settings["entity-symmetry-cheat"].value
               -- now actually make or remove the additional entities
               for n = 2, #positions do
                 if action == "create" then
                   local pos = positions[n]
                   local dir = entity.supports_direction and directions[n] or 0
-                  if orientation_direction_types[entity.type] == 0 then
+                  if orientation_direction_types[deghost_type(entity)] == 0 then
                     -- smooth turning entities are spawned with a direction
                     dir = orientation_to_direction(orientations[n])
                   end
@@ -444,20 +449,26 @@ local function on_altered_entity(event, action, manual)
                     -- new_entity.direction = dir
 
                     --TODO type-specific attributes
-                    local new_entity = surface.create_entity{
-                      name = entity.name,
+                    local entity_def = {
                       position = pos,
                       direction = dir,
                       force = entity.force,
-                      inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil,
                       raise_built = true,
                     }
+                    if cheat then
+                      entity_def.name = entity.name
+                      entity_def.inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil
+                    else
+                      entity_def.name = "entity-ghost"
+                      entity_def.inner_name = entity.name == "entity-ghost" and entity.ghost_name or entity.name
+                    end
+                    local new_entity = surface.create_entity(entity_def)
 
-                    if entity.name == "symmetry-center" then
+                    if cheat and entity.name == "symmetry-center" then
                       new_centers[#new_centers+1] = new_entity
                     end
                   end
-                elseif action == "destroy" then
+                elseif action == "destroy" or action == "deconstruct_canceled" or action == "deconstruct_marked" then
                   local found_entities = surface.find_entities_filtered{
                     area = {{positions[n].x - 0.5, positions[n].y - 0.5}, {positions[n].x + 0.5, positions[n].y + 0.5}},
                     name = entity.name,
@@ -471,15 +482,21 @@ local function on_altered_entity(event, action, manual)
                           if found_entity.orientation == orientations[n] then
                             if (not entity.supports_direction) or (found_entity.direction == directions[n]) then
                               if found_entity ~= entity then
-                                found_entity.destroy()
+                                if entity.type ~= "entity-ghost" or found_entity.ghost_name == entity.ghost_name then
+                                  if (cheat and action == "destroy") or entity.type == "entity-ghost" then
+                                    found_entity.destroy()
+                                  elseif action == "destroy" or action == "deconstruct_marked" then
+                                    found_entity.order_deconstruction(player.force, player)
+                                  elseif action == "deconstruct_canceled" then
+                                    found_entity.on_cancelled_deconstruction(player.force, player)
+                                  end
+                                end
                               end
                             end
                           end
                         end
                       end
                     end
-                  else
-                    -- debug_write("no centers to delete")
                   end
                 else
                   -- debug_write("unrecognized action " .. params.action)
@@ -518,10 +535,13 @@ end
 -- handle all ways an entity can be built so that we catch new symmetry-center entities being created
 -- only on_built_entity will actually trigger symmetric cloning
 script.on_event(defines.events.on_built_entity,       function(event) on_altered_entity(event, "create", true) end)
-script.on_event(defines.events.on_robot_built_entity, function(event) on_altered_entity(event, "create", false) end)
+-- clones should have already been created when the ghost was created
+-- script.on_event(defines.events.on_robot_built_entity, function(event) on_altered_entity(event, "create", false) end)
 script.on_event(defines.events.on_entity_cloned,      function(event) on_altered_entity(event, "create", false) end)
 script.on_event(defines.events.script_raised_built,   function(event) on_altered_entity(event, "create", false) end)
 script.on_event(defines.events.script_raised_revive,  function(event) on_altered_entity(event, "create", false) end)
+script.on_event(defines.events.on_cancelled_deconstruction,  function(event) on_altered_entity(event, "deconstruct_canceled", true) end)
+script.on_event(defines.events.on_marked_for_deconstruction, function(event) on_altered_entity(event, "deconstruct_marked", true) end)
 
 -- removal of symmetry-center is handled by registering entity-specific destruction events when they are created
 -- so we only need to watch for player mining entities to trigger symmetric removal

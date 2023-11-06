@@ -8,7 +8,10 @@ for rail junctions.
 
 Craft a "Symmetry Center" item. Place it in the world as a "Symmetry Center"
 entity. Place some entities nearby and see them duplicated around the center.
-Remove those entities and the duplicates will be removed.
+Remove those entities and the duplicates will be removed. Creation and removal
+use construction ghosts and deconstruction marks by default. Enabling direct
+creation and removal (cheating) requires enabling a new map setting and player
+setting.
 
 ## Configuration
 
