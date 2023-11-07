@@ -101,7 +101,7 @@ local rail_entity_types = {
 }
 
 local function deghost_type(entity)
-  return entity.type == "entity-ghost" and entity.ghost_name or entity.type
+  return entity.type == "entity-ghost" and entity.ghost_type or entity.type
 end
 
 -- given an entity type and its current direction and orientation
