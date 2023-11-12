@@ -488,7 +488,7 @@ local function on_altered_entity(event, action, manual)
                                   elseif action == "destroy" or action == "deconstruct_marked" then
                                     found_entity.order_deconstruction(player.force, player)
                                   elseif action == "deconstruct_canceled" then
-                                    found_entity.on_cancelled_deconstruction(player.force, player)
+                                    found_entity.cancel_deconstruction(player.force, player)
                                   end
                                 end
                               end
