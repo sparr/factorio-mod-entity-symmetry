@@ -41,5 +41,5 @@ data:extend(
       setting_type  = "runtime-per-user",
       default_value = false,
     },
-  }
+  } --[=[@as data.AnyModSetting[]]=]
 )
