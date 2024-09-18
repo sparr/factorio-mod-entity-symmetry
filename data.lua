@@ -1,3 +1,7 @@
+local collision_mask_util = require("collision-mask-util")
+
+local collision_layer = collision_mask_util.get_first_unused_layer()
+
 data:extend(
 {
   {
@@ -24,5 +28,6 @@ entity.name = "symmetry-center"
 entity.icon = "__base__/graphics/icons/signal/signal_pink.png"
 entity.minable = {hardness = 0.1, mining_time = 0.5, result = "symmetry-center"}
 entity.max_health = 1000
-entity.collision_mask = {"layer-14"} -- only collide with itself and unlucky other mods
+
+entity.collision_mask = {collision_layer} -- only collide with itself
 data:extend({entity})
