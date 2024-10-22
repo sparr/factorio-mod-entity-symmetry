@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.0
+Date: 2024-10-21
+  Features:
+    - Support for Space Age elevated rails and signals
+    - Support for Factorio 2.0 curved rails, half diagonal rails, diagonal rails
+  Changes:
+    - Factorio 2.0 API update
+---------------------------------------------------------------------------------------------------
 Version: 2.0.2
 Date: 2023-11-11
   Bugfixes:
