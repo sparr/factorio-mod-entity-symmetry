@@ -4,6 +4,7 @@ Date: 2024-10-21
   Features:
     - Support for Space Age elevated rails and signals
     - Support for Factorio 2.0 curved rails, half diagonal rails, diagonal rails
+    - Visible feedback for symmetry center point
   Changes:
     - Factorio 2.0 API update
 ---------------------------------------------------------------------------------------------------

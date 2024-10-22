@@ -1,7 +1,15 @@
 require "util"
 
+---@class Center
+---@field entity LuaEntity
+---@field render_center LuaRenderObject?
+---@field render_mirror LuaRenderObject[]?
+---@field render_rotate LuaRenderObject[]?
+---@field render_radius LuaRenderObject?
+
 ---@class (exact) Storage
----@field cached_center_entities LuaEntity[]
+---@field cached_center_entities LuaEntity[] DEPRECATED
+---@field centers table< uint64, Center >
 ---@type Storage
 storage=storage
 
@@ -245,7 +253,7 @@ end
 
 local function cache_center_entity(entity)
   if entity.valid ~= true then return end
-  storage.cached_center_entities[script.register_on_object_destroyed(entity)] = entity
+  storage.centers[ script.register_on_object_destroyed(entity) ] = { entity = entity }
 end
 
 ---@param control_behavior LuaConstantCombinatorControlBehavior
@@ -268,13 +276,67 @@ local function player_or_default_setting( player, setting )
   or settings.player_default[setting]
 end
 
+---Find the symmetry center position for a given symmetry center entity
+---@param player LuaPlayer?
+---@param entity LuaEntity
+---@return Vector
+local function symmetry_center_position( player, entity, center_dir )
+  local center_position = table.deepcopy(entity.position)
+  local rail_mode = rail_entity_types[deghost_type(entity)] or entity.prototype.building_grid_bit_shift == 2 or false
+  local configured_rail_mode = ( player_or_default_setting( player, 'entity-symmetry-default-rails' ).value )
+  if configured_rail_mode > 0 then
+    rail_mode = true
+  end
+  local conditional_rail_offset = rail_mode and 1 or 0.5
+  -- rail grid is 2x2, find the center of the rail tile the entity is in
+  if rail_mode or configured_rail_mode > 0 then
+    center_position.x = math.floor(((center_position.x - 1) / 2) + 0.5) * 2 + 1
+    center_position.y = math.floor(((center_position.y - 1) / 2) + 0.5) * 2 + 1
+  end
+  local cb = entity.get_control_behavior() --[[@as LuaConstantCombinatorControlBehavior]]
+  local center_dir = ( player_or_default_setting( player, 'entity-symmetry-default-center' ).value )
+  for index, filter in pairs(cb.get_section(1).filters) do
+    if filter.value.name then
+      if filter.value.name == "signal-C" then
+        -- move the [C]enter point to an edge/corner of the tile
+        center_dir = filter.min
+      end
+    end
+  end
+  if center_dir >=0 and center_dir <= 7 then
+    -- move the [C]enter point to an edge/corner of the tile
+    if     center_dir == 1 then
+      center_position.x = center_position.x + conditional_rail_offset
+      center_position.y = center_position.y - conditional_rail_offset
+    elseif center_dir == 3 then
+      center_position.x = center_position.x + conditional_rail_offset
+      center_position.y = center_position.y + conditional_rail_offset
+    elseif center_dir == 5 then
+      center_position.x = center_position.x - conditional_rail_offset
+      center_position.y = center_position.y + conditional_rail_offset
+    elseif center_dir == 7 then
+      center_position.x = center_position.x - conditional_rail_offset
+      center_position.y = center_position.y - conditional_rail_offset
+    elseif center_dir == 0 then
+      center_position.y = center_position.y - conditional_rail_offset
+    elseif center_dir == 2 then
+      center_position.x = center_position.x + conditional_rail_offset
+    elseif center_dir == 4 then
+      center_position.y = center_position.y + conditional_rail_offset
+    elseif center_dir == 6 then
+      center_position.x = center_position.x - conditional_rail_offset
+    end
+  end
+return center_position
+end
+
 ---@param event EventData.on_built_entity | EventData.on_entity_cloned | EventData.script_raised_built | EventData.script_raised_revive | EventData.on_cancelled_deconstruction | EventData.on_marked_for_deconstruction | EventData.on_player_mined_entity
 ---@param action any
 ---@param manual any
 local function on_altered_entity(event, action, manual)
   local entity = event.entity or event.source
   local surface = entity.surface
-  local centers = storage.cached_center_entities
+  local centers = storage.centers
   ---@type LuaPlayer?
   local player = event.player_index and game.players[event.player_index] or nil
 
@@ -317,12 +379,11 @@ local function on_altered_entity(event, action, manual)
   if manual then
     local rail_mode = rail_entity_types[deghost_type(entity)] or entity.prototype.building_grid_bit_shift == 2 or false
     local new_centers = {}
-    for i, center_entity in pairs(centers) do
-      if not center_entity.valid then
-        centers[i] = nil
-      elseif center_entity.surface.name == entity.surface.name then
-        if center_entity ~= entity then
-          local center_dir = ( player_or_default_setting( player, 'entity-symmetry-default-center' ).value )
+    for i, center in pairs(centers) do
+      if not center.entity.valid then
+        centers[ i ] = nil
+      elseif center.entity.surface.name == entity.surface.name then
+        if center.entity ~= entity then
           local range = ( player_or_default_setting( player, 'entity-symmetry-default-distance' ).value )
           local configured_rail_mode = ( player_or_default_setting( player, 'entity-symmetry-default-rails' ).value )
           local rot_symmetry = ( player_or_default_setting( player, 'entity-symmetry-default-symmetry' ).value )
@@ -332,16 +393,13 @@ local function on_altered_entity(event, action, manual)
           local diag2_mirror = false
           local include = {}
           local exclude = {}
-          local cb = center_entity.get_control_behavior() --[[@as LuaConstantCombinatorControlBehavior]]
+          local cb = center.entity.get_control_behavior() --[[@as LuaConstantCombinatorControlBehavior]]
           if not cb.enabled then goto next_center_entity end
           local rail_signal_slot = 3
 
           for index, filter in pairs(cb.get_section(1).filters) do
             if filter.value.name then
-              if filter.value.name == "signal-C" then
-                -- move the [C]enter point to an edge/corner of the tile
-                center_dir = filter.min
-              elseif filter.value.name == "signal-D" then
+              if filter.value.name == "signal-D" then
                 -- set the [D]istance/range
                 range = filter.min
               elseif filter.value.name == "signal-R" then
@@ -372,51 +430,17 @@ local function on_altered_entity(event, action, manual)
               end
             end
           end
-          local center_position = table.deepcopy(center_entity.position)
-          -- rail grid is 2x2, find the center of the rail tile
-          if rail_mode or configured_rail_mode > 0 then
-            center_position.x = math.floor(((center_position.x - 1) / 2) + 0.5) * 2 + 1
-            center_position.y = math.floor(((center_position.y - 1) / 2) + 0.5) * 2 + 1
-          end
           -- negative range is circular, positive is square
-          if (range>0 and ((entity.position.x - center_position.x)^2 + (entity.position.y - center_position.y)^2) <= range*range) or
-            (math.abs(entity.position.x - center_position.x) <= range and math.abs(entity.position.y - center_position.y) <= range)
+          if (not include.some and not exclude.some) or
+            (include.some and (include[entity.name] or ((entity.name=="straight-rail" or entity.name=="curved-rail") and include["rail"]))) or
+            (not include.some and exclude.some and not (exclude[entity.name] or ((entity.name=="straight-rail" or entity.name=="curved-rail") and exclude["rail"])))
           then
-            if (not include.some and not exclude.some) or
-              (include.some and (include[entity.name] or ((entity.name=="straight-rail" or entity.name=="curved-rail") and include["rail"]))) or
-              (not include.some and exclude.some and not (exclude[entity.name] or ((entity.name=="straight-rail" or entity.name=="curved-rail") and exclude["rail"])))
+            local center_position = symmetry_center_position( player, center.entity )
+            if (range>0 and ((entity.position.x - center_position.x)^2 + (entity.position.y - center_position.y)^2) <= range*range) or
+              (math.abs(entity.position.x - center_position.x) <= range and math.abs(entity.position.y - center_position.y) <= range)
             then
-              if rail_mode then
-                if configured_rail_mode == 0 then
-                  cb.get_section( 1 ).set_slot( rail_signal_slot, { value = { type = "virtual", name = "signal-R", quality = "normal" }, min = 1 })
-                end
-              elseif configured_rail_mode > 0 then
-                rail_mode = true
-              end
-              local conditional_rail_offset = rail_mode and 1 or 0.5
-              if center_dir >=0 and center_dir <= 7 then
-                -- move the [C]enter point to an edge/corner of the tile
-                if     center_dir == 1 then
-                  center_position.x = center_position.x + conditional_rail_offset
-                  center_position.y = center_position.y - conditional_rail_offset
-                elseif center_dir == 3 then
-                  center_position.x = center_position.x + conditional_rail_offset
-                  center_position.y = center_position.y + conditional_rail_offset
-                elseif center_dir == 5 then
-                  center_position.x = center_position.x - conditional_rail_offset
-                  center_position.y = center_position.y + conditional_rail_offset
-                elseif center_dir == 7 then
-                  center_position.x = center_position.x - conditional_rail_offset
-                  center_position.y = center_position.y - conditional_rail_offset
-                elseif center_dir == 0 then
-                  center_position.y = center_position.y - conditional_rail_offset
-                elseif center_dir == 2 then
-                  center_position.x = center_position.x + conditional_rail_offset
-                elseif center_dir == 4 then
-                  center_position.y = center_position.y + conditional_rail_offset
-                elseif center_dir == 6 then
-                  center_position.x = center_position.x - conditional_rail_offset
-                end
+              if rail_mode and configured_rail_mode == 0 then
+                cb.get_section( 1 ).set_slot( rail_signal_slot, { value = { type = "virtual", name = "signal-R", quality = "normal" }, min = 1 })
               end
               local positions = {table.deepcopy(entity.position)}
               local directions = {entity.direction}
@@ -531,7 +555,7 @@ local function on_altered_entity(event, action, manual)
                     local new_entity = surface.create_entity(entity_def)
 
                     if cheat and entity.name == "symmetry-center" then
-                      new_centers[#new_centers+1] = new_entity
+                      table.insert( new_centers, new_entity )
                     end
                   end
                 elseif action == "destroy" or action == "deconstruct_canceled" or action == "deconstruct_marked" then
@@ -576,19 +600,57 @@ local function on_altered_entity(event, action, manual)
       end
       ::next_center_entity::
     end
-    for _, new_center in pairs(new_centers) do
-      cache_center_entity(new_center)
+    for _, new_center in pairs( new_centers ) do
+      cache_center_entity( new_center )
     end
   end
 end
 
 local function on_object_destroyed(event)
-  storage.cached_center_entities[event.registration_number] = nil
+  storage.centers[ event.registration_number ] = nil
+end
+
+local function update_render_objects( player, entity )
+  local cb = entity.get_control_behavior() --[[@as LuaConstantCombinatorControlBehavior?]]
+  if cb then
+    local section = cb.get_section(1)
+    if section then
+      -- apparently calling .register a second time is the appropriate way to get the
+      -- registration id of a previously registered entity
+      local entity_number = script.register_on_object_destroyed( entity )
+      local render_object = storage.centers[ entity_number ].render_center
+      if render_object == nil then
+        render_object = rendering.draw_circle{
+          target = { entity = entity, offset = { 0, 0 } },
+          surface = entity.surface,
+          color = {1, 0, 1, 1},
+          radius = 16/32,
+        }
+        storage.centers[ entity_number ].render_center = render_object
+      end
+      local center_position = symmetry_center_position( player, entity )
+      render_object.target = {
+        entity = render_object.target.entity,
+        offset = { center_position.x - entity.position.x, center_position.y - entity.position.y },
+      }
+    end
+  end
+end
+
+---comment
+---@param event EventData.on_gui_closed
+local function on_gui_closed(event)
+  if event.gui_type == defines.gui_type.entity then
+    local entity = event.entity
+    if entity and event.entity.name == "symmetry-center" then
+      update_render_objects( game.players[ event.player_index ], entity )
+    end
+  end
 end
 
 local function on_configuration_changed(event)
-  if storage.cached_center_entities == nil then
-    storage.cached_center_entities = {}
+  if storage.centers == nil then
+    storage.centers = {}
     for _,surface in pairs(game.surfaces) do
       local centers = surface.find_entities_filtered{name="symmetry-center"}
       for _, center in pairs(centers) do
@@ -616,15 +678,11 @@ script.on_event(defines.events.on_cancelled_deconstruction,  function(event) on_
 script.on_event(defines.events.on_marked_for_deconstruction, function(event) on_altered_entity(event, "deconstruct_marked", true) end)
 script.on_event(defines.events.on_object_destroyed, on_object_destroyed)
 
+-- TODO use this to detect combinator changes when https://forums.factorio.com/viewtopic.php?f=7&t=116575 is resolved
+-- script.on_event(defines.events.on_entity_logistic_slot_changed, function(event) end)
+-- temporary method to detect changed combinator signals
+script.on_event(defines.events.on_gui_closed, on_gui_closed)
+
 
 script.on_init(on_configuration_changed)
 script.on_configuration_changed(on_configuration_changed)
-
--- local debugnum = 0
--- local function debug_write(...)
---   if game and game.players[1] then
---     game.players[1].print("DEBUG " .. debugnum .. " " .. game.tick .. ": " .. serpent.line(..., {comment=false}))
---     debugnum = debugnum + 1
---   end
--- end
-
