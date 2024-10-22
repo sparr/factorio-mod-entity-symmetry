@@ -1,10 +1,10 @@
 {
   "name": "entity-symmetry",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "title": "Entity Symmetry",
   "author": "Sparr",
   "homepage": "http://github.com/sparr/factorio-mod-entity-symmetry",
   "contact": "sparr0@gmail.com",
   "description": "Places mirrored/rotated entities around a specified point. Configuration options in README.",
-  "factorio_version": "1.1"
+  "factorio_version": "2.0"
 }

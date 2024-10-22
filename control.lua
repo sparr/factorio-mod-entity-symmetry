@@ -1,7 +1,12 @@
 require "util"
 
+---@class (exact) Storage
+---@field cached_center_entities LuaEntity[]
+---@type Storage
+storage=storage
+
 -- Concepts:
--- "direction" is an integer, 0-7, representing North, Northeast, ..., West, Northwest
+-- "direction" is an integer, 0-15, representing North, North by Northeast, Northeast, ..., Northwest, North by Northwest
 -- "orientation" is a float, where 0 represents North, 0.25 East, 0.5 South, 0.75 West
 -- "angle" is a float, where 0 represents North, PI/2 East, PI South, 3*PI/2 West
 -- position is a table with x and y coordinates, each a float
@@ -9,37 +14,47 @@ require "util"
 -- +y is South
 
 -- we're going to refer to these a lot
-local N, NE, E, SE, S, SW, W, NW =
+local N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW =
   defines.direction.north,
+  defines.direction.northnortheast,
   defines.direction.northeast,
+  defines.direction.eastnortheast,
   defines.direction.east,
+  defines.direction.eastsoutheast,
   defines.direction.southeast,
+  defines.direction.southsoutheast,
   defines.direction.south,
+  defines.direction.southsouthwest,
   defines.direction.southwest,
+  defines.direction.westsouthwest,
   defines.direction.west,
-  defines.direction.northwest
+  defines.direction.westnorthwest,
+  defines.direction.northwest,
+  defines.direction.northnorthwest
 
 -- inline arithmetic would be faster, but this is better than a function call
 local direction_to_orientation = {
-  [N]  = 0,
-  [NE] = 0.125,
-  [E]  = 0.25,
-  [SE] = 0.375,
-  [S]  = 0.5,
-  [SW] = 0.625,
-  [W]  = 0.75,
-  [NW] = 0.875
+  [N]  = 0/16,
+  [NNE] = 1/16,
+  [NE] = 2/16,
+  [ENE] = 3/16,
+  [E]  = 4/16,
+  [ESE] = 5/16,
+  [SE] = 6/16,
+  [SSE] = 7/16,
+  [S]  = 8/16,
+  [SSW] = 9/16,
+  [SW] = 10/16,
+  [WSW] = 11/16,
+  [W]  = 12/16,
+  [WNW] = 13/16,
+  [NW] = 14/16,
+  [NNW] = 15/16,
 }
 
 local function orientation_to_direction(ori)
-  return math.floor(ori * 8 + 0.5) % 8
+  return math.floor(ori * 16 + 0.5) % 16
 end
-
--- curved rail directions are a little weird, so mirroring them requires a lookup
-local direction_curvedrail_mirror_x =
-  {[N]=NE, [NE]=N, [E]=NW, [SE]=W, [S]=SW, [SW]=S, [W]=SE, [NW]=E}
-local direction_curvedrail_mirror_y =
-  {[N]=SW, [NE]=S, [E]=SE, [SE]=E, [S]=NE, [SW]=N, [W]=NW, [NW]=W}
 
 -- how many directions/orientations can each entity type point
 -- 0 means smooth rotation, mostly for vehicles
@@ -50,10 +65,20 @@ local orientation_direction_types = {
   ["cargo-wagon"]           = 0,
   ["fluid-wagon"]           = 0,
   ["artillery-wagon"]       = 0,
-  ["straight-rail"]         = 8, -- has special cases handled elsewhere
-  ["curved-rail"]           = 8, -- has special cases handled elsewhere
-  ["rail-signal"]           = 8,
-  ["rail-chain-signal"]     = 8,
+  ["straight-rail"]               = 8,
+  ["curved-rail-a"]               = 8,
+  ["curved-rail-b"]               = 8,
+  ["half-diagonal-rail"]          = 8,
+  ["rail-ramp"]                   = 4,
+  ["elevated-straight-rail"]      = 8,
+  ["elevated-curved-rail-a"]      = 8,
+  ["elevated-curved-rail-b"]      = 8,
+  ["elevated-half-diagonal-rail"] = 8,
+  ["legacy-straight-rail"]        = 8, -- has special cases handled elsewhere
+  ["legacy-curved-rail"]          = 8, -- has special cases handled elsewhere
+  ["rail-support"]          = 16,
+  ["rail-signal"]           = 16,
+  ["rail-chain-signal"]     = 16,
   ["inserter"]              = 4,
   ["transport-belt"]        = 4,
   ["underground-belt"]      = 4,
@@ -85,12 +110,22 @@ local orientation_snap = {
   [2] = 0.25, -- I don't remember why this isn't 0.5
   [4] = 0.25,
   [8] = 0.125,
+  [16] = 0.0625,
 }
 
--- entities that exist on the 2x2 rail grid
+-- entities that exist on the 2x2 raigrid
 local rail_entity_types = {
-  ["straight-rail"]     = true,
-  ["curved-rail"]       = true,
+  ["straight-rail"]               = true,
+  ["curved-rail-a"]               = true,
+  ["curved-rail-b"]               = true,
+  ["half-diagonal-rail"]          = true,
+  ["rail-ramp"]                   = true,
+  ["elevated-straight-rail"]      = true,
+  ["elevated-curved-rail-a"]      = true,
+  ["elevated-curved-rail-b"]      = true,
+  ["elevated-half-diagonal-rail"] = true,
+  ["legacy-straight-rail"]        = true,
+  ["legacy-curved-rail"]          = true,
   ["rail-signal"]       = true,
   ["rail-chain-signal"] = true,
   ["train-stop"]        = true,
@@ -100,12 +135,29 @@ local rail_entity_types = {
   ["artillery-wagon"]   = true,
 }
 
+-- entities that only support half of the valid directions because they are symmetric
+local symmetric_rail_entity_types = {
+  ["straight-rail"]               = true,
+  ["half-diagonal-rail"]          = true,
+  ["elevated-straight-rail"]      = true,
+  ["elevated-half-diagonal-rail"] = true,
+  ["legacy-straight-rail"]        = true,
+  ["legacy-curved-rail"]          = true,
+  ["rail-support"]                = true,
+}
+
 local function deghost_type(entity)
   return entity.type == "entity-ghost" and entity.ghost_type or entity.type
 end
 
+-- Starting at the north point of a circle and proceeding clockwise
+-- alternating a b b a, so the order is a6 b6 b0 a0 a10 ...
+local curved_rail_directions = { [0] = 6, nil, 0, nil, 10, nil, 4, nil, 14, nil, 8, nil, 2, nil, 12, nil }
+-- crd[crdi[x]]==x, crdi[crd[x]]==x
+local curved_rail_directions_inverse = { [0] = 2, nil, 12, nil, 6, nil, 0, nil, 10, nil, 4, nil, 14, nil, 8, nil }
+
 -- given an entity type and its current direction and orientation
--- return the direction and orientation after optional mirroring/rotation
+-- return the direction and oentation after optional mirroring/rotation
 -- sym_x for east/west mirror
 -- sym_y for north/south/mirror
 -- reori for rotation, 0.25 = 90 degrees clockwise
@@ -120,6 +172,7 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
   then
     reori = (reori or 0) + 0.5
   end
+  local curved_rail = entity_type:find"^curved%-rail" ~= nil or entity_type:find"^elevated%-curved%-rail" ~= nil
   if reori then -- rotation
     if od_type == 0 then
       return 0, (ori + reori) % 1
@@ -129,32 +182,36 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
     if snap_ori > 0 then -- round to nearest multiple of snap_ori
       dir_reori = math.floor((reori + (snap_ori / 2)) / snap_ori) * snap_ori
     end
-    dir = (dir + dir_reori * 8) % 8
-    ori = (ori + dir_reori) % 1
+    if curved_rail then
+      dir = curved_rail_directions[ ( curved_rail_directions_inverse[ dir ] + dir_reori * 16 ) % 16 ]
+      ori = direction_to_orientation[ dir ]
+    else
+      dir = (dir + dir_reori * 16) % 16
+      ori = (ori + dir_reori) % 1
+    end
   end
   if sym_x then
-    if entity_type == "curved-rail" then
-      dir = direction_curvedrail_mirror_x[dir]
+    if curved_rail then
+      dir = curved_rail_directions[ 14 - curved_rail_directions_inverse[ dir ] ]
     else
-      dir = (8 - dir) % 8
+      dir = (16 - dir) % 16
       ori = (1 - ori) % 1
     end
   end
   if sym_y then
-    if entity_type == "curved-rail" then
-      dir = direction_curvedrail_mirror_y[dir]
+    if curved_rail then
+      dir = curved_rail_directions[ ( 6 - curved_rail_directions_inverse[ dir ] + 16 ) % 16 ]
     else
-      dir = ((8 - ((dir - 2) % 8)) + 2) % 8
+      dir = ((16 - ((dir - 2) % 16)) + 2) % 16
       ori = ((1 - ((ori - 0.25) % 1)) + 0.25) % 1
     end
   end
-  if entity_type == "curved-rail" then
+  if curved_rail then
     ori = direction_to_orientation[dir]
   end
-  if od_type == 2 or entity_type == "straight-rail" then
-    -- these types never point south/west
-    if dir == 4 or dir == 6 then dir = dir - 4 end
-    if ori == 0.5 or ori == 0.75 then ori = ori - 0.5 end
+  if od_type == 2 or symmetric_rail_entity_types[entity_type] then
+    dir = dir % 8
+    ori = ori % 0.5
   end
   return dir, ori
 end
@@ -188,57 +245,69 @@ end
 
 local function cache_center_entity(entity)
   if entity.valid ~= true then return end
-  global.cached_center_entities[script.register_on_entity_destroyed(entity)] = entity
+  storage.cached_center_entities[script.register_on_object_destroyed(entity)] = entity
 end
 
-local function control_behavior_empty(control_behavior)
-  for _, parameter in pairs(control_behavior.parameters) do -- API bug, maybe to be fixed in 1.1
-    if parameter.signal.name then return false end
+---@param control_behavior LuaConstantCombinatorControlBehavior
+---@return boolean
+local function control_behavior_fresh(control_behavior)
+  for _, section in pairs( control_behavior.sections ) do
+    if section.filters_count > 0 then
+      return false
+    end
   end
   return true
 end
 
+---Get a mod setting for a player, or the player default if they haven't set it.
+---@param player LuaPlayer?
+---@param setting string
+---@return ModSetting
+local function player_or_default_setting( player, setting )
+  return player and player.mod_settings[setting]
+  or settings.player_default[setting]
+end
+
+---@param event EventData.on_built_entity | EventData.on_entity_cloned | EventData.script_raised_built | EventData.script_raised_revive | EventData.on_cancelled_deconstruction | EventData.on_marked_for_deconstruction | EventData.on_player_mined_entity
+---@param action any
+---@param manual any
 local function on_altered_entity(event, action, manual)
-  local entity = event.created_entity or event.entity or event.source
+  local entity = event.entity or event.source
   local surface = entity.surface
-  local centers = global.cached_center_entities
+  local centers = storage.cached_center_entities
+  ---@type LuaPlayer?
   local player = event.player_index and game.players[event.player_index] or nil
 
   if entity.name == "symmetry-center" then
     if action == "create" then
       cache_center_entity(entity)
       if manual then
-        local cb = entity.get_control_behavior()
-        if control_behavior_empty(cb) then
+        local cb = entity.get_control_behavior() --[[@as LuaConstantCombinatorControlBehavior]]
+        if cb.sections_count == 0 then
+          cb.add_section( "" )
+        end
+        -- FIXME temp until https://forums.factorio.com/viewtopic.php?f=7&t=116334 is fixed
+        if control_behavior_fresh( cb ) then
           -- set some default signals for a new manually placed empty symmetry-center
           -- maybe this should also trigger for new empty symmetry-center ghosts?
-          cb.set_signal(1, {
-            signal={type="virtual", name="signal-C"},
-            count=tostring(
-              player and player.mod_settings['entity-symmetry-default-center'].value
-              or settings.player['entity-symmetry-default-center'].value
-            )
+          local section = cb.get_section( 1 )
+          assert( section ~= nil )
+          section.set_slot( 1, {
+            -- FIXME quality here is a workaround for https://forums.factorio.com/viewtopic.php?f=7&t=116334
+            value = { type="virtual", name="signal-C", quality="normal" },
+            min = player_or_default_setting( player, 'entity-symmetry-default-center' ).value --[[@as integer]]
           })
-          cb.set_signal(2, {
-            signal={type="virtual", name="signal-D"},
-            count=tostring(
-              player and player.mod_settings['entity-symmetry-default-distance'].value
-              or settings.player['entity-symmetry-default-distance'].value
-            )
+          section.set_slot( 2, {
+            value = { type="virtual", name="signal-D", quality="normal" },
+            min = player_or_default_setting( player, 'entity-symmetry-default-distance' ).value --[[@as integer]]
           })
-          cb.set_signal(3, {
-            signal={type="virtual", name="signal-R"},
-            count=tostring(
-              player and player.mod_settings['entity-symmetry-default-rails'].value
-              or settings.player['entity-symmetry-default-rails'].value
-            )
+          section.set_slot( 3, {
+            value = { type="virtual", name="signal-R", quality="normal" },
+            min = player_or_default_setting( player, 'entity-symmetry-default-rails' ).value --[[@as integer]]
           })
-          cb.set_signal(4, {
-            signal={type="virtual", name="signal-S"},
-            count=tostring(
-              player and player.mod_settings['entity-symmetry-default-symmetry'].value
-              or settings.player['entity-symmetry-default-symmetry'].value
-            )
+          section.set_slot( 4, {
+            value = { type="virtual", name="signal-S", quality="normal" },
+            min = player_or_default_setting( player, 'entity-symmetry-default-symmetry' ).value --[[@as integer]]
           })
         end
       end
@@ -253,56 +322,52 @@ local function on_altered_entity(event, action, manual)
         centers[i] = nil
       elseif center_entity.surface.name == entity.surface.name then
         if center_entity ~= entity then
-          local center_dir = ( player and player.mod_settings['entity-symmetry-default-center'].value
-            or settings.player['entity-symmetry-default-center'].value )
-          local range = ( player and player.mod_settings['entity-symmetry-default-distance'].value
-            or settings.player['entity-symmetry-default-distance'].value )
-          local configured_rail_mode = ( player and player.mod_settings['entity-symmetry-default-rails'].value
-            or settings.player['entity-symmetry-default-rails'].value )
-          local rot_symmetry = ( player and player.mod_settings['entity-symmetry-default-symmetry'].value
-            or settings.player['entity-symmetry-default-symmetry'].value )
+          local center_dir = ( player_or_default_setting( player, 'entity-symmetry-default-center' ).value )
+          local range = ( player_or_default_setting( player, 'entity-symmetry-default-distance' ).value )
+          local configured_rail_mode = ( player_or_default_setting( player, 'entity-symmetry-default-rails' ).value )
+          local rot_symmetry = ( player_or_default_setting( player, 'entity-symmetry-default-symmetry' ).value )
           local xaxis_mirror = false
           local yaxis_mirror = false
           local diag1_mirror = false
           local diag2_mirror = false
           local include = {}
           local exclude = {}
-          local cb = center_entity.get_control_behavior()
+          local cb = center_entity.get_control_behavior() --[[@as LuaConstantCombinatorControlBehavior]]
           if not cb.enabled then goto next_center_entity end
           local rail_signal_slot = 3
 
-          for _, parameter in pairs(cb.parameters) do
-            if parameter.signal.name then
-              if parameter.signal.name == "signal-C" then
+          for index, filter in pairs(cb.get_section(1).filters) do
+            if filter.value.name then
+              if filter.value.name == "signal-C" then
                 -- move the [C]enter point to an edge/corner of the tile
-                center_dir = parameter.count
-              elseif parameter.signal.name == "signal-D" then
+                center_dir = filter.min
+              elseif filter.value.name == "signal-D" then
                 -- set the [D]istance/range
-                range = parameter.count
-              elseif parameter.signal.name == "signal-R" then
+                range = filter.min
+              elseif filter.value.name == "signal-R" then
                 -- optionally turn on or off [R]ail mode for all entities
-                configured_rail_mode = parameter.count
-                rail_signal_slot = parameter.index
-              elseif parameter.signal.name == "signal-S" then
+                configured_rail_mode = filter.min
+                rail_signal_slot = index
+              elseif filter.value.name == "signal-S" then
                 -- type and degree/axes of [S]ymmetry
-                if parameter.count >= 0 then -- rotational symmetry degree
-                  rot_symmetry = parameter.count
+                if filter.min >= 0 then -- rotational symmetry degree
+                  rot_symmetry = filter.min
                 else -- mirroring, x/y axes, diagonals
                   rot_symmetry = 0
-                  if bit32.band(1, -parameter.count) > 0 then xaxis_mirror = true end
-                  if bit32.band(2, -parameter.count) > 0 then yaxis_mirror = true end
-                  if bit32.band(4, -parameter.count) > 0 then diag1_mirror = true end
-                  if bit32.band(8, -parameter.count) > 0 then diag2_mirror = true end
+                  if bit32.band(1, -filter.min) > 0 then xaxis_mirror = true end
+                  if bit32.band(2, -filter.min) > 0 then yaxis_mirror = true end
+                  if bit32.band(4, -filter.min) > 0 then diag1_mirror = true end
+                  if bit32.band(8, -filter.min) > 0 then diag2_mirror = true end
                 end
-              elseif parameter.signal.type == "item" then
+              elseif filter.value.type == "item" then
                 -- negative item signals exclude the item
                 -- positive filter for just those items
-                if parameter.count < 0 then
+                if filter.min < 0 then
                   exclude.some = true
-                  exclude[parameter.signal.name] = true
+                  exclude[filter.value.name] = true
                 else
                   include.some = true
-                  include[parameter.signal.name] = true
+                  include[filter.value.name] = true
                 end
               end
             end
@@ -323,7 +388,7 @@ local function on_altered_entity(event, action, manual)
             then
               if rail_mode then
                 if configured_rail_mode == 0 then
-                  cb.set_signal(rail_signal_slot, {signal={type="virtual", name="signal-R"}, count="1"})
+                  cb.get_section( 1 ).set_slot( rail_signal_slot, { value = { type = "virtual", name = "signal-R", quality = "normal" }, min = 1 })
                 end
               elseif configured_rail_mode > 0 then
                 rail_mode = true
@@ -394,7 +459,7 @@ local function on_altered_entity(event, action, manual)
                       center_position.x - (new_position.y - center_position.y),
                       center_position.y - (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    directions[#directions + 1] = ((deghost_type(entity) == "curved-rail" and 3 or 2) - directions[n]) % 8
+                    directions[#directions + 1] = ((deghost_type(entity) == "curved-rail" and 3 or 2) - directions[n]) % 16
                     orientations[#orientations + 1] = (-orientations[n] + 0.25) % 1
                   end
                 end
@@ -405,7 +470,7 @@ local function on_altered_entity(event, action, manual)
                       center_position.x + (new_position.y - center_position.y),
                       center_position.y + (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    directions[#directions + 1] = ((deghost_type(entity) == "curved-rail" and 7 or 6) - directions[n]) % 8
+                    directions[#directions + 1] = ((deghost_type(entity) == "curved-rail" and 15 or 14) - directions[n]) % 16
                     orientations[#orientations + 1] = (-orientations[n] + 0.75) % 1
                   end
                 end
@@ -428,7 +493,7 @@ local function on_altered_entity(event, action, manual)
                   orientations[#orientations + 1] = ori
                 end
               end
-              local cheat = settings.global["entity-symmetry-allow-cheat"].value and player.mod_settings["entity-symmetry-cheat"].value
+              local cheat = settings.global["entity-symmetry-allow-cheat"].value and player and player.mod_settings["entity-symmetry-cheat"].value
               -- now actually make or remove the additional entities
               for n = 2, #positions do
                 if action == "create" then
@@ -455,6 +520,7 @@ local function on_altered_entity(event, action, manual)
                       force = entity.force,
                       raise_built = true,
                     }
+                    if entity.name:find("^rail-.*-?signal$") then entity_def.rail_layer = entity.rail_layer end
                     if cheat then
                       entity_def.name = entity.name
                       entity_def.inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil
@@ -485,10 +551,12 @@ local function on_altered_entity(event, action, manual)
                                 if entity.type ~= "entity-ghost" or found_entity.ghost_name == entity.ghost_name then
                                   if (cheat and action == "destroy") or entity.type == "entity-ghost" then
                                     found_entity.destroy()
-                                  elseif action == "destroy" or action == "deconstruct_marked" then
-                                    found_entity.order_deconstruction(player.force, player)
-                                  elseif action == "deconstruct_canceled" then
-                                    found_entity.cancel_deconstruction(player.force, player)
+                                  elseif player then
+                                    if action == "destroy" or action == "deconstruct_marked" then
+                                      found_entity.order_deconstruction(player.force, player)
+                                    elseif action == "deconstruct_canceled" then
+                                      found_entity.cancel_deconstruction(player.force, player)
+                                    end
                                   end
                                 end
                               end
@@ -514,13 +582,13 @@ local function on_altered_entity(event, action, manual)
   end
 end
 
-local function on_entity_destroyed(event)
-  global.cached_center_entities[event.registration_number] = nil
+local function on_object_destroyed(event)
+  storage.cached_center_entities[event.registration_number] = nil
 end
 
 local function on_configuration_changed(event)
-  if global.cached_center_entities == nil then
-    global.cached_center_entities = {}
+  if storage.cached_center_entities == nil then
+    storage.cached_center_entities = {}
     for _,surface in pairs(game.surfaces) do
       local centers = surface.find_entities_filtered{name="symmetry-center"}
       for _, center in pairs(centers) do
@@ -540,14 +608,14 @@ script.on_event(defines.events.on_built_entity,       function(event) on_altered
 script.on_event(defines.events.on_entity_cloned,      function(event) on_altered_entity(event, "create", false) end)
 script.on_event(defines.events.script_raised_built,   function(event) on_altered_entity(event, "create", false) end)
 script.on_event(defines.events.script_raised_revive,  function(event) on_altered_entity(event, "create", false) end)
-script.on_event(defines.events.on_cancelled_deconstruction,  function(event) on_altered_entity(event, "deconstruct_canceled", true) end)
-script.on_event(defines.events.on_marked_for_deconstruction, function(event) on_altered_entity(event, "deconstruct_marked", true) end)
 
 -- removal of symmetry-center is handled by registering entity-specific destruction events when they are created
--- so we only need to watch for player mining entities to trigger symmetric removal
+-- so we only need to watch for player mining or marking entities to trigger symmetric removal/marking
 script.on_event(defines.events.on_player_mined_entity, function(event) on_altered_entity(event, "destroy", true) end)
+script.on_event(defines.events.on_cancelled_deconstruction,  function(event) on_altered_entity(event, "deconstruct_canceled", true) end)
+script.on_event(defines.events.on_marked_for_deconstruction, function(event) on_altered_entity(event, "deconstruct_marked", true) end)
+script.on_event(defines.events.on_object_destroyed, on_object_destroyed)
 
-script.on_event(defines.events.on_entity_destroyed, on_entity_destroyed)
 
 script.on_init(on_configuration_changed)
 script.on_configuration_changed(on_configuration_changed)
