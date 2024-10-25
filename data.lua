@@ -29,5 +29,6 @@ entity.sprites.south = entity.sprites.north
 entity.sprites.west  = entity.sprites.north
 entity.minable = {hardness = 0.1, mining_time = 0.5, result = "symmetry-center"}
 entity.max_health = 1000
+-- FIXME doesn't self collide currently https://forums.factorio.com/viewtopic.php?f=28&t=117486
 entity.collision_mask = { layers = {} }  -- only collides with itself
 data:extend({entity})

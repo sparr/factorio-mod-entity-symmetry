@@ -33,6 +33,7 @@ local N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW =
   defines.direction.northnorthwest
 
 -- inline arithmetic would be faster, but this is better than a function call
+---@type table<defines.direction, float>
 local direction_to_orientation = {
   [N]  = 0/16,
   [NNE] = 1/16,
@@ -156,24 +157,35 @@ local curved_rail_directions = { [0] = 6, nil, 0, nil, 10, nil, 4, nil, 14, nil,
 -- crd[crdi[x]]==x, crdi[crd[x]]==x
 local curved_rail_directions_inverse = { [0] = 2, nil, 12, nil, 6, nil, 0, nil, 10, nil, 4, nil, 14, nil, 8, nil }
 
--- given an entity type and its current direction and orientation
--- return the direction and oentation after optional mirroring/rotation
--- sym_x for east/west mirror
--- sym_y for north/south/mirror
--- reori for rotation, 0.25 = 90 degrees clockwise
-local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y, reori)
+---Rotate and/or mirror a given direction and orientation
+---@param entity_type string
+---@param dir defines.direction|integer direction of the entity [0-15]
+---@param ori float orientation of the entity [0.0-1.0)
+---@param sym_x boolean mirror in the X direction, across the Y axis
+---@param sym_y boolean mirror in the Y direction, across the X axis
+---@param sym_diag_1 boolean mirror across a northeast/southwest line
+---@param sym_diag_2 boolean mirror across a northwest/southeast line
+---@param reori float amount to rotate, 0 = none, 0.25 = 90 degrees clockwise
+---@return defines.direction|integer|nil direction
+---@return float orientation
+local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y, sym_diag_1, sym_diag_2, reori)
   local od_type = orientation_direction_types[entity_type]
   if od_type == nil then
     return 0, 0
   end
-  -- rail signals need to be rotated 180 if they are mirrored once
+  -- rail signals need to be rotated 180 if they are mirrored an odd number of times
   if (entity_type == "rail-signal" or entity_type == "rail-chain-signal") and
-    ((sym_x and not sym_y) or (sym_y and not sym_x))
+    (
+      ( sym_x and 1 or 0 ) +
+      ( sym_y and 1 or 0 ) +
+      ( sym_diag_1 and 1 or 0 ) +
+      ( sym_diag_2 and 1 or 0 )
+    ) % 2 == 1
   then
-    reori = (reori or 0) + 0.5
+    reori = ( (reori or 0) + 0.5 ) % 1
   end
   local curved_rail = entity_type:find"^curved%-rail" ~= nil or entity_type:find"^elevated%-curved%-rail" ~= nil
-  if reori then -- rotation
+  if reori ~= 0 then -- rotation
     if od_type == 0 then
       return 0, (ori + reori) % 1
     end
@@ -194,16 +206,32 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
     if curved_rail then
       dir = curved_rail_directions[ 14 - curved_rail_directions_inverse[ dir ] ]
     else
-      dir = (16 - dir) % 16
-      ori = (1 - ori) % 1
+      dir = ( 16 - dir ) % 16
+      ori = ( 1 - ori ) % 1
     end
   end
   if sym_y then
     if curved_rail then
       dir = curved_rail_directions[ ( 6 - curved_rail_directions_inverse[ dir ] + 16 ) % 16 ]
     else
-      dir = ((16 - ((dir - 2) % 16)) + 2) % 16
-      ori = ((1 - ((ori - 0.25) % 1)) + 0.25) % 1
+      dir = ( 24 - dir ) % 16
+      ori = ( 1.5 - ori ) % 1
+    end
+  end
+  if sym_diag_1 then
+    if curved_rail then
+      dir = curved_rail_directions[ ( 2 - curved_rail_directions_inverse[ dir ] + 16 ) % 16 ]
+    else
+      dir = ( 20 - dir ) % 16
+      ori = ( 1.25 - ori ) % 1
+    end
+  end
+  if sym_diag_2 then
+    if curved_rail then
+      dir = curved_rail_directions[ ( 10 - curved_rail_directions_inverse[ dir ] + 16 ) % 16 ]
+    else
+      dir = ( 28 - dir ) % 16
+      ori = ( 1.75 - ori ) % 1
     end
   end
   if curved_rail then
@@ -419,6 +447,7 @@ local function on_altered_entity(event, action, manual)
                 end
               end
               local positions = {table.deepcopy(entity.position)}
+              ---@type [ defines.direction | integer ]
               local directions = {entity.direction}
               local orientations = {entity.orientation}
               if rot_symmetry == 0 then
@@ -431,7 +460,7 @@ local function on_altered_entity(event, action, manual)
                       deghost_type(entity),
                       directions[n],
                       orientations[n],
-                      true, false, false
+                      true, false, false, false, 0
                     )
                     directions[#directions + 1] = dir
                     orientations[#orientations + 1] = ori
@@ -446,7 +475,7 @@ local function on_altered_entity(event, action, manual)
                       deghost_type(entity),
                       directions[n],
                       orientations[n],
-                      false, true, false
+                      false, true, false, false, 0
                     )
                     directions[#directions + 1] = dir
                     orientations[#orientations + 1] = ori
@@ -459,8 +488,14 @@ local function on_altered_entity(event, action, manual)
                       center_position.x - (new_position.y - center_position.y),
                       center_position.y - (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    directions[#directions + 1] = ((deghost_type(entity) == "curved-rail" and 3 or 2) - directions[n]) % 16
-                    orientations[#orientations + 1] = (-orientations[n] + 0.25) % 1
+                    local dir, ori = get_mirrotated_entity_dir_ori(
+                      deghost_type(entity),
+                      directions[n],
+                      orientations[n],
+                      false, false, true, false, 0
+                    )
+                    directions[#directions + 1] = dir
+                    orientations[#orientations + 1] = ori
                   end
                 end
                 if diag2_mirror then
@@ -470,13 +505,17 @@ local function on_altered_entity(event, action, manual)
                       center_position.x + (new_position.y - center_position.y),
                       center_position.y + (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    directions[#directions + 1] = ((deghost_type(entity) == "curved-rail" and 15 or 14) - directions[n]) % 16
-                    orientations[#orientations + 1] = (-orientations[n] + 0.75) % 1
+                    local dir, ori = get_mirrotated_entity_dir_ori(
+                      deghost_type(entity),
+                      directions[n],
+                      orientations[n],
+                      false, false, false, true, 0
+                    )
+                    directions[#directions + 1] = dir
+                    orientations[#orientations + 1] = ori
                   end
                 end
               elseif rot_symmetry > 1 then -- rotational symmetry instead of mirroring
-                local rot_direction = directions[1]
-                local rot_orientation = orientations[1]
                 for r = 1, rot_symmetry - 1 do
                   positions[#positions + 1] = orient_position_relative(
                     center_position,
@@ -487,7 +526,7 @@ local function on_altered_entity(event, action, manual)
                     deghost_type(entity),
                     directions[1],
                     orientations[1],
-                    false, false, r * (1 / rot_symmetry)
+                    false, false, false, false, r * (1 / rot_symmetry)
                   )
                   directions[#directions + 1] = dir
                   orientations[#orientations + 1] = ori

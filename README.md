@@ -19,8 +19,8 @@ The Symmetry Center entity is a constant combinator. Setting signals within it
 will control its behavior as follows:
 
 - **C**
-Move the center of symmetry to a corner/edge of the tile. 0 = north edge, 1 =
-northeast corner, ..., 6 = west edge, 7 = northwest corner.
+Move the center of symmetry to a corner/edge of the [rail] tile . 0 = north edge,
+1 = northeast corner, ..., 6 = west edge, 7 = northwest corner.
 - **D**
 Set the max distance from the center to copy entities. Default is 64. Negative
 numbers are circular distance, positive square.
