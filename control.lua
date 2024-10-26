@@ -100,6 +100,7 @@ local orientation_direction_types = {
   ["fluid-turret"]          = 4,
   ["artillery-turret"]      = 4,
   ["simple-entity-with-owner"] = 4,
+  ["assembling-machine"]    = 4,
   ["storage-tank"]          = 2,
   ["steam-engine"]          = 2,
   ["steam-turbine"]         = 2,
@@ -114,7 +115,7 @@ local orientation_snap = {
   [16] = 0.0625,
 }
 
--- entities that exist on the 2x2 raigrid
+-- entities that exist on the 2x2 rail grid
 local rail_entity_types = {
   ["straight-rail"]               = true,
   ["curved-rail-a"]               = true,
@@ -157,6 +158,40 @@ local curved_rail_directions = { [0] = 6, nil, 0, nil, 10, nil, 4, nil, 14, nil,
 -- crd[crdi[x]]==x, crdi[crd[x]]==x
 local curved_rail_directions_inverse = { [0] = 2, nil, 12, nil, 6, nil, 0, nil, 10, nil, 4, nil, 14, nil, 8, nil }
 
+---Perform a horizontal flip of a given direction and orientation
+---@param dir defines.direction|integer direction [0-15]
+---@param ori float orientation [0-1)
+---@param curved_rail boolean is this a curved rail?
+---@return defines.direction|integer direction
+---@return float orientation
+local function flip_h( dir, ori, curved_rail )
+  if curved_rail then
+    dir = curved_rail_directions[ 14 - curved_rail_directions_inverse[ dir ] ]
+    assert( dir ~= nil )
+  else
+    dir = ( 16 - dir ) % 16
+    ori = ( 1 - ori ) % 1
+  end
+  return dir, ori
+end
+
+---Perform a vertical flip of a given direction and orientation
+---@param dir defines.direction|integer direction [0-15]
+---@param ori float orientation [0-1)
+---@param curved_rail boolean is this a curved rail?
+---@return defines.direction|integer direction
+---@return float orientation
+local function flip_v( dir, ori, curved_rail )
+  if curved_rail then
+    dir = curved_rail_directions[ ( 6 - curved_rail_directions_inverse[ dir ] + 16 ) % 16 ]
+    assert( dir ~= nil )
+  else
+    dir = ( 24 - dir ) % 16
+    ori = ( 1.5 - ori ) % 1
+  end
+return dir, ori
+end
+
 ---Rotate and/or mirror a given direction and orientation
 ---@param entity_type string
 ---@param dir defines.direction|integer direction of the entity [0-15]
@@ -168,20 +203,20 @@ local curved_rail_directions_inverse = { [0] = 2, nil, 12, nil, 6, nil, 0, nil, 
 ---@param reori float amount to rotate, 0 = none, 0.25 = 90 degrees clockwise
 ---@return defines.direction|integer|nil direction
 ---@return float orientation
+---@return boolean flip whether the target should be flipped
 local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y, sym_diag_1, sym_diag_2, reori)
   local od_type = orientation_direction_types[entity_type]
   if od_type == nil then
-    return 0, 0
+    return 0, 0, false
   end
+  local flip = (
+    ( sym_x and 1 or 0 ) +
+    ( sym_y and 1 or 0 ) +
+    ( sym_diag_1 and 1 or 0 ) +
+    ( sym_diag_2 and 1 or 0 )
+  ) % 2 == 1
   -- rail signals need to be rotated 180 if they are mirrored an odd number of times
-  if (entity_type == "rail-signal" or entity_type == "rail-chain-signal") and
-    (
-      ( sym_x and 1 or 0 ) +
-      ( sym_y and 1 or 0 ) +
-      ( sym_diag_1 and 1 or 0 ) +
-      ( sym_diag_2 and 1 or 0 )
-    ) % 2 == 1
-  then
+  if (entity_type == "rail-signal" or entity_type == "rail-chain-signal") and flip then
     reori = ( (reori or 0) + 0.5 ) % 1
   end
   local curved_rail = entity_type:find"^curved%-rail" ~= nil or entity_type:find"^elevated%-curved%-rail" ~= nil
@@ -203,20 +238,10 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
     end
   end
   if sym_x then
-    if curved_rail then
-      dir = curved_rail_directions[ 14 - curved_rail_directions_inverse[ dir ] ]
-    else
-      dir = ( 16 - dir ) % 16
-      ori = ( 1 - ori ) % 1
-    end
+    dir, ori = flip_h( dir, ori, curved_rail )
   end
   if sym_y then
-    if curved_rail then
-      dir = curved_rail_directions[ ( 6 - curved_rail_directions_inverse[ dir ] + 16 ) % 16 ]
-    else
-      dir = ( 24 - dir ) % 16
-      ori = ( 1.5 - ori ) % 1
-    end
+    dir, ori = flip_v( dir, ori, curved_rail )
   end
   if sym_diag_1 then
     if curved_rail then
@@ -241,7 +266,7 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
     dir = dir % 8
     ori = ori % 0.5
   end
-  return dir, ori
+  return dir, ori, flip
 end
 
 -- given two positions, orbit one around the other
@@ -296,7 +321,7 @@ local function player_or_default_setting( player, setting )
   or settings.player_default[setting]
 end
 
----@param event EventData.on_built_entity | EventData.on_entity_cloned | EventData.script_raised_built | EventData.script_raised_revive | EventData.on_cancelled_deconstruction | EventData.on_marked_for_deconstruction | EventData.on_player_mined_entity
+---@param event EventData.on_built_entity | EventData.on_entity_cloned | EventData.script_raised_built | EventData.script_raised_revive | EventData.on_cancelled_deconstruction | EventData.on_marked_for_deconstruction | EventData.on_player_mined_entity | EventData.on_player_rotated_entity | EventData.on_player_flipped_entity
 ---@param action any
 ---@param manual any
 local function on_altered_entity(event, action, manual)
@@ -450,13 +475,31 @@ local function on_altered_entity(event, action, manual)
               ---@type [ defines.direction | integer ]
               local directions = {entity.direction}
               local orientations = {entity.orientation}
+              local flips = {entity.mirroring}
+              if action == "modify" then
+                -- search for matching entities should use the prior state of the entity
+                if event.previous_direction then
+                  -- rotation event
+                  directions[1] = event.previous_direction
+                  orientations[1] = direction_to_orientation[ directions[1] ]
+                elseif event.horizontal ~= nil then
+                  -- flip event
+                  flips[1] = not flips[1]
+                  local curved_rail = entity.type:find"^curved%-rail" ~= nil or entity.type:find"^elevated%-curved%-rail" ~= nil
+                  if event.horizontal then
+                    directions[1], orientations[1] = flip_h( directions[1], orientations[1], curved_rail )
+                  else
+                    directions[1], orientations[1] = flip_v( directions[1], orientations[1], curved_rail )
+                  end
+                end
+              end
               if rot_symmetry == 0 then
                 if xaxis_mirror then
                   for n = 1, #positions do
                     local new_position = table.deepcopy(positions[n])
                     new_position.x = center_position.x - (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    local dir, ori = get_mirrotated_entity_dir_ori(
+                    local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
                       directions[n],
                       orientations[n],
@@ -464,6 +507,7 @@ local function on_altered_entity(event, action, manual)
                     )
                     directions[#directions + 1] = dir
                     orientations[#orientations + 1] = ori
+                    flips[#flips + 1] = entity.mirroring ~= flip
                   end
                 end
                 if yaxis_mirror then
@@ -471,7 +515,7 @@ local function on_altered_entity(event, action, manual)
                     local new_position = table.deepcopy(positions[n])
                     new_position.y = center_position.y - (new_position.y - center_position.y)
                     positions[#positions + 1] = new_position
-                    local dir, ori = get_mirrotated_entity_dir_ori(
+                    local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
                       directions[n],
                       orientations[n],
@@ -479,6 +523,7 @@ local function on_altered_entity(event, action, manual)
                     )
                     directions[#directions + 1] = dir
                     orientations[#orientations + 1] = ori
+                    flips[#flips + 1] = entity.mirroring ~= flip
                   end
                 end
                 if diag1_mirror then
@@ -488,7 +533,7 @@ local function on_altered_entity(event, action, manual)
                       center_position.x - (new_position.y - center_position.y),
                       center_position.y - (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    local dir, ori = get_mirrotated_entity_dir_ori(
+                    local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
                       directions[n],
                       orientations[n],
@@ -496,6 +541,7 @@ local function on_altered_entity(event, action, manual)
                     )
                     directions[#directions + 1] = dir
                     orientations[#orientations + 1] = ori
+                    flips[#flips + 1] = entity.mirroring ~= flip
                   end
                 end
                 if diag2_mirror then
@@ -505,7 +551,7 @@ local function on_altered_entity(event, action, manual)
                       center_position.x + (new_position.y - center_position.y),
                       center_position.y + (new_position.x - center_position.x)
                     positions[#positions + 1] = new_position
-                    local dir, ori = get_mirrotated_entity_dir_ori(
+                    local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
                       directions[n],
                       orientations[n],
@@ -513,6 +559,7 @@ local function on_altered_entity(event, action, manual)
                     )
                     directions[#directions + 1] = dir
                     orientations[#orientations + 1] = ori
+                    flips[#flips + 1] = entity.mirroring ~= flip
                   end
                 end
               elseif rot_symmetry > 1 then -- rotational symmetry instead of mirroring
@@ -530,6 +577,7 @@ local function on_altered_entity(event, action, manual)
                   )
                   directions[#directions + 1] = dir
                   orientations[#orientations + 1] = ori
+                  flips[#flips + 1] = flips[1]
                 end
               end
               local cheat = settings.global["entity-symmetry-allow-cheat"].value and player and player.mod_settings["entity-symmetry-cheat"].value
@@ -538,6 +586,7 @@ local function on_altered_entity(event, action, manual)
                 if action == "create" then
                   local pos = positions[n]
                   local dir = entity.supports_direction and directions[n] or 0
+                  local flip = flips[n]
                   if orientation_direction_types[deghost_type(entity)] == 0 then
                     -- smooth turning entities are spawned with a direction
                     dir = orientation_to_direction(orientations[n])
@@ -558,6 +607,7 @@ local function on_altered_entity(event, action, manual)
                       direction = dir,
                       force = entity.force,
                       raise_built = true,
+                      mirroring = flip, -- pending https://forums.factorio.com/viewtopic.php?f=28&t=117626
                     }
                     pcall(function () entity_def.rail_layer = entity.rail_layer end)
                     pcall(function () entity_def.recipe = entity.get_recipe().name end)
@@ -569,12 +619,16 @@ local function on_altered_entity(event, action, manual)
                       entity_def.inner_name = entity.name == "entity-ghost" and entity.ghost_name or entity.name
                     end
                     local new_entity = surface.create_entity(entity_def)
+                    if flip then
+                      -- workaround for https://forums.factorio.com/viewtopic.php?f=7&t=117633
+                      new_entity.mirroring = flip
+                    end
 
                     if cheat and entity.name == "symmetry-center" then
                       new_centers[#new_centers+1] = new_entity
                     end
                   end
-                elseif action == "destroy" or action == "deconstruct_canceled" or action == "deconstruct_marked" then
+                elseif action == "destroy" or action == "deconstruct_canceled" or action == "deconstruct_marked" or action == "modify" then
                   local found_entities = surface.find_entities_filtered{
                     area = {{positions[n].x - 0.5, positions[n].y - 0.5}, {positions[n].x + 0.5, positions[n].y + 0.5}},
                     name = entity.name,
@@ -586,16 +640,37 @@ local function on_altered_entity(event, action, manual)
                       if found_entity.valid then
                         if found_entity.position.x == positions[n].x and found_entity.position.y == positions[n].y then
                           if found_entity.orientation == orientations[n] then
-                            if (not entity.supports_direction) or (found_entity.direction == directions[n]) then
-                              if found_entity ~= entity then
-                                if entity.type ~= "entity-ghost" or found_entity.ghost_name == entity.ghost_name then
-                                  if (cheat and action == "destroy") or entity.type == "entity-ghost" then
-                                    found_entity.destroy()
-                                  elseif player then
-                                    if action == "destroy" or action == "deconstruct_marked" then
-                                      found_entity.order_deconstruction(player.force, player)
-                                    elseif action == "deconstruct_canceled" then
-                                      found_entity.cancel_deconstruction(player.force, player)
+                            if found_entity.mirroring == flips[n] then
+                              if (not entity.supports_direction) or (found_entity.direction == directions[n]) then
+                                if found_entity ~= entity then
+                                  if entity.type ~= "entity-ghost" or found_entity.ghost_name == entity.ghost_name then
+                                    if action == "destroy" or action == "deconstruct_canceled" or action == "deconstruct_marked" then
+                                      if (cheat and action == "destroy") or entity.type == "entity-ghost" then
+                                        found_entity.destroy()
+                                      elseif player then
+                                        if action == "destroy" or action == "deconstruct_marked" then
+                                          found_entity.order_deconstruction(player.force, player)
+                                        elseif action == "deconstruct_canceled" then
+                                          found_entity.cancel_deconstruction(player.force, player)
+                                        end
+                                      end
+                                    elseif action == "modify" then
+                                      if event.previous_direction then
+                                        -- rotation event
+                                        found_entity.direction = ( found_entity.direction + entity.direction - event.previous_direction ) % 16
+                                      elseif event.horizontal ~= nil then
+                                        -- flip event
+                                        local curved_rail = entity.type:find"^curved%-rail" ~= nil or entity.type:find"^elevated%-curved%-rail" ~= nil
+                                        found_entity.mirroring = not found_entity.mirroring
+                                        if event.horizontal then
+                                          found_entity.direction, found_entity.orientation = flip_h( found_entity.direction, found_entity.orientation, curved_rail )
+                                        else
+                                          found_entity.direction, found_entity.orientation = flip_v( found_entity.direction, found_entity.orientation, curved_rail )
+                                        end
+                                      else
+                                        -- debug_write("unrecognized action " .. params.action)
+                                      end
+                                    else
                                     end
                                   end
                                 end
@@ -648,6 +723,9 @@ script.on_event(defines.events.on_built_entity,       function(event) on_altered
 script.on_event(defines.events.on_entity_cloned,      function(event) on_altered_entity(event, "create", false) end)
 script.on_event(defines.events.script_raised_built,   function(event) on_altered_entity(event, "create", false) end)
 script.on_event(defines.events.script_raised_revive,  function(event) on_altered_entity(event, "create", false) end)
+
+script.on_event(defines.events.on_player_rotated_entity, function(event) on_altered_entity(event, "modify", true) end)
+script.on_event(defines.events.on_player_flipped_entity, function(event) on_altered_entity(event, "modify", true) end)
 
 -- removal of symmetry-center is handled by registering entity-specific destruction events when they are created
 -- so we only need to watch for player mining or marking entities to trigger symmetric removal/marking

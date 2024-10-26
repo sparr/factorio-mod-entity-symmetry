@@ -1,13 +1,16 @@
 ---------------------------------------------------------------------------------------------------
 Version: 2.1.2
-Date: ????
+Date: 2024-10-26
   Features:
+    - Support player rotate/flip operations on entities (partially pending game bug fix)
     - Support assembler recipes
+  Bugfixes:
+    - Handle entity mirroring property (e.g. flipped fluid assemblers)
 ---------------------------------------------------------------------------------------------------
 Version: 2.1.1
 Date: 2024-10-25
   Bugfixes:
-    - Fixed mirroring
+    - Fixed mirror symmetry (S<0)
 ---------------------------------------------------------------------------------------------------
 Version: 2.1.0
 Date: 2024-10-22
