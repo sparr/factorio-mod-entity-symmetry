@@ -559,7 +559,8 @@ local function on_altered_entity(event, action, manual)
                       force = entity.force,
                       raise_built = true,
                     }
-                    if entity.name:find("^rail-.*-?signal$") then entity_def.rail_layer = entity.rail_layer end
+                    pcall(function () entity_def.rail_layer = entity.rail_layer end)
+                    pcall(function () entity_def.recipe = entity.get_recipe().name end)
                     if cheat then
                       entity_def.name = entity.name
                       entity_def.inner_name = entity.name == "entity-ghost" and entity.ghost_name or nil
