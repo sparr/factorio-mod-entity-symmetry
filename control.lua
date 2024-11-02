@@ -148,8 +148,25 @@ local symmetric_rail_entity_types = {
   ["rail-support"]                = true,
 }
 
+local supports_mirroring = {
+  ["assembling-machine-1"] = true,
+  ["oil-refinery"]         = true,
+  ["chemical-plant"]       = true,
+  ["centrifuge"]           = true,
+}
+
+---Type of the entity, or the entity inside an entity ghost
+---@param entity LuaEntity
+---@return string
 local function deghost_type(entity)
   return entity.type == "entity-ghost" and entity.ghost_type or entity.type
+end
+
+---Name of the entity, or the entity inside an entity ghost
+---@param entity LuaEntity
+---@return string
+local function deghost_name(entity)
+  return entity.type == "entity-ghost" and entity.ghost_name or entity.name
 end
 
 -- Starting at the north point of a circle and proceeding clockwise
@@ -204,17 +221,20 @@ end
 ---@return defines.direction|integer|nil direction
 ---@return float orientation
 ---@return boolean flip whether the target should be flipped
-local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y, sym_diag_1, sym_diag_2, reori)
+local function get_mirrotated_entity_dir_ori(entity_type, entity_name, dir, ori, sym_x, sym_y, sym_diag_1, sym_diag_2, reori)
   local od_type = orientation_direction_types[entity_type]
   if od_type == nil then
     return 0, 0, false
   end
-  local flip = (
+  local flip = supports_mirroring[entity_name] and
+  (
     ( sym_x and 1 or 0 ) +
     ( sym_y and 1 or 0 ) +
     ( sym_diag_1 and 1 or 0 ) +
     ( sym_diag_2 and 1 or 0 )
   ) % 2 == 1
+  or
+  false
   -- rail signals need to be rotated 180 if they are mirrored an odd number of times
   if (entity_type == "rail-signal" or entity_type == "rail-chain-signal") and flip then
     reori = ( (reori or 0) + 0.5 ) % 1
@@ -222,7 +242,7 @@ local function get_mirrotated_entity_dir_ori(entity_type, dir, ori, sym_x, sym_y
   local curved_rail = entity_type:find"^curved%-rail" ~= nil or entity_type:find"^elevated%-curved%-rail" ~= nil
   if reori ~= 0 then -- rotation
     if od_type == 0 then
-      return 0, (ori + reori) % 1
+      return 0, (ori + reori) % 1, false
     end
     local dir_reori = reori
     local snap_ori = orientation_snap[orientation_direction_types[entity_type]]
@@ -501,6 +521,7 @@ local function on_altered_entity(event, action, manual)
                     positions[#positions + 1] = new_position
                     local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
+                      deghost_name(entity),
                       directions[n],
                       orientations[n],
                       true, false, false, false, 0
@@ -517,6 +538,7 @@ local function on_altered_entity(event, action, manual)
                     positions[#positions + 1] = new_position
                     local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
+                      deghost_name(entity),
                       directions[n],
                       orientations[n],
                       false, true, false, false, 0
@@ -535,6 +557,7 @@ local function on_altered_entity(event, action, manual)
                     positions[#positions + 1] = new_position
                     local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
+                      deghost_name(entity),
                       directions[n],
                       orientations[n],
                       false, false, true, false, 0
@@ -553,6 +576,7 @@ local function on_altered_entity(event, action, manual)
                     positions[#positions + 1] = new_position
                     local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
+                      deghost_name(entity),
                       directions[n],
                       orientations[n],
                       false, false, false, true, 0
@@ -571,6 +595,7 @@ local function on_altered_entity(event, action, manual)
                   )
                   local dir, ori = get_mirrotated_entity_dir_ori(
                     deghost_type(entity),
+                    deghost_name(entity),
                     directions[1],
                     orientations[1],
                     false, false, false, false, r * (1 / rot_symmetry)
@@ -618,14 +643,16 @@ local function on_altered_entity(event, action, manual)
                       entity_def.name = "entity-ghost"
                       entity_def.inner_name = entity.name == "entity-ghost" and entity.ghost_name or entity.name
                     end
+                    log(serpent.line(entity_def))
                     local new_entity = surface.create_entity(entity_def)
-                    if flip then
-                      -- workaround for https://forums.factorio.com/viewtopic.php?f=7&t=117633
-                      new_entity.mirroring = flip
-                    end
-
-                    if cheat and entity.name == "symmetry-center" then
-                      new_centers[#new_centers+1] = new_entity
+                    if new_entity then -- creation may have failed for duplicates/collisions
+                      if flip then
+                        -- workaround for https://forums.factorio.com/viewtopic.php?f=7&t=117633
+                        new_entity.mirroring = flip
+                      end
+                      if cheat and entity.name == "symmetry-center" then
+                        new_centers[#new_centers+1] = new_entity
+                      end
                     end
                   end
                 elseif action == "destroy" or action == "deconstruct_canceled" or action == "deconstruct_marked" or action == "modify" then

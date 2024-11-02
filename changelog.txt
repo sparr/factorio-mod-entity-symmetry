@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.3
+Date: 2024-11-01
+  Bugfixes:
+    - Crash when creating mirror-symmetric entities that don't support mirroring property
+    - Failure to delete mirror symmetry entities that don't support mirroring property
+---------------------------------------------------------------------------------------------------
 Version: 2.1.2
 Date: 2024-10-26
   Features:
