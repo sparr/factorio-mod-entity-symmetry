@@ -14,6 +14,7 @@ storage=storage
 -- +y is South
 
 local geometry = require("lib.geometry")
+local orbit = require("lib.orbit")
 
 local direction_to_orientation = geometry.direction_to_orientation
 local orientation_to_direction = geometry.orientation_to_direction
@@ -320,6 +321,46 @@ local function on_altered_entity(event, action, manual)
                 end
               end
               local cheat = settings.global["entity-symmetry-allow-cheat"].value and player and player.mod_settings["entity-symmetry-cheat"].value
+
+              -- Removing is not the reverse of placing. A copy was placed by rotating and
+              -- then snapping to the placement grid, and rotate-then-snap is not a group
+              -- operation, so rotating the removed entity's own position gives positions
+              -- that can miss its siblings by up to a diagonal tile -- which is why S=2 and
+              -- S=4 worked and nothing else did (issue #2). Ask lib/orbit which placement
+              -- best explains what is actually on the ground instead.
+              if rot_symmetry > 1 and action ~= "create" then
+                local proto = entity.type == "entity-ghost" and entity.ghost_prototype or entity.prototype
+                local snap = orbit.snapper(proto.tile_width or 1, proto.tile_height or 1)
+                local function occupied(position)
+                  local candidates = surface.find_entities_filtered{
+                    area = {{position.x - 0.6, position.y - 0.6},
+                            {position.x + 0.6, position.y + 0.6}},
+                    name = entity.name,
+                    type = entity.type,
+                    force = entity.force.name,
+                  }
+                  for _, candidate in pairs(candidates) do
+                    if candidate.valid and candidate ~= entity then return candidate end
+                  end
+                  return nil
+                end
+                local recovered = orbit.choose(center_position, positions[1], rot_symmetry, snap, occupied)
+                -- keep the entity's own slot first, as the loop below skips index 1
+                local reordered = { positions[1] }
+                local own = orbit.key(positions[1])
+                for _, position in ipairs(recovered) do
+                  if orbit.key(position) ~= own then reordered[#reordered + 1] = position end
+                end
+                positions = reordered
+                -- copies of a rotation share the original's direction handling, and the
+                -- removal path only compares direction when the entity supports it
+                for n = #directions + 1, #positions do
+                  directions[n] = directions[math.min(n, #directions)] or directions[1]
+                  orientations[n] = orientations[math.min(n, #orientations)] or orientations[1]
+                  flips[n] = flips[math.min(n, #flips)] or flips[1]
+                end
+              end
+
               -- now actually make or remove the additional entities
               for n = 2, #positions do
                 if action == "create" then
