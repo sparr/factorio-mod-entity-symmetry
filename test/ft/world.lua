@@ -6,7 +6,24 @@ local world = {}
 world.CENTER = "symmetry-center"
 world.SUBJECT = "wooden-chest"     -- no direction, no mirroring: the simplest thing to copy
 
+--- Patches are laid out in a grid rather than marching off along one axis, so the region
+--- the fixtures use stays compact, and the ground is generated once for the whole grid
+--- rather than per patch. Chunk generation is the most expensive thing this tier does, and
+--- set_tiles quietly does nothing on a chunk that does not exist yet -- a patch out past
+--- the chunks the map generated at startup silently has no ground, and a blueprint will
+--- not stamp on it.
+local PATCH = 64       -- centre-to-centre spacing
+local COLUMNS = 6      -- patches per row before wrapping
 local next_patch = 0
+local prepared = false
+
+local function prepare(surface)
+    if prepared then return end
+    local span = COLUMNS * PATCH
+    surface.request_to_generate_chunks({ x = span / 2, y = span / 2 }, math.ceil(span / 32))
+    surface.force_generate_chunk_requests()
+    prepared = true
+end
 
 --- A fresh square of lab tiles well away from anything else, with a symmetry centre in
 --- the middle configured by the signals the mod reads:
@@ -21,20 +38,19 @@ local next_patch = 0
 function world.patch(opts)
     opts = opts or {}
     local surface = game.surfaces[1]
+    prepare(surface)
     local cheat = opts.cheat
     if cheat == nil then cheat = true end
     settings.global["entity-symmetry-allow-cheat"] = { value = cheat }
     local player = game.players[1]
     if player then player.mod_settings["entity-symmetry-cheat"] = { value = cheat } end
+    local index = next_patch
     next_patch = next_patch + 1
-    local origin = { x = next_patch * 64, y = 0 }
+    local origin = {
+        x = (index % COLUMNS) * PATCH,
+        y = math.floor(index / COLUMNS) * PATCH,
+    }
     local half = 24
-
-    -- Patches march off along +x, and past the first few they land outside the chunks the
-    -- map generated at startup. set_tiles does nothing on an ungenerated chunk and a
-    -- blueprint will not stamp there, so ask for the ground first.
-    surface.request_to_generate_chunks(origin, 3)
-    surface.force_generate_chunk_requests()
 
     local area = {{ origin.x - half, origin.y - half }, { origin.x + half, origin.y + half }}
     local tiles = {}
