@@ -36,12 +36,18 @@ end
 
 --- Worst case over a spread of distances and angles: how often does mining a copy produce
 --- a different set, and how far is the nearest recomputed position from a real one?
+---
+--- 17 angles rather than 16 on purpose: sixteenths include the quarter turns, which are
+--- exactly the rotations that already work, so a power-of-two sample spends its slots on
+--- the easy cases and flatters the result.
+local ANGLES = 17
+
 local function survey(s)
     local cases, mismatches, worst = 0, 0, 0
     for dist = 1, 20 do
-        for ang = 0, 15 do
+        for ang = 0, ANGLES - 1 do
             local seed = snap(geometry.orient_position_relative(
-                CENTRE, { x = CENTRE.x + dist, y = CENTRE.y }, ang / 16))
+                CENTRE, { x = CENTRE.x + dist, y = CENTRE.y }, ang / ANGLES))
             local original = copy_set(seed, s)
             for k = 1, #original do
                 cases = cases + 1
