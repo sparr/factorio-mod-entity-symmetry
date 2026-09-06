@@ -56,6 +56,29 @@ local function player_or_default_setting( player, setting )
   or settings.player_default[setting]
 end
 
+---Entities in `area` that are the same thing as `entity`, whether either side is a ghost.
+---A ghost is named entity-ghost with the real name in ghost_name, so filtering on
+---entity.name alone never matches a real entity against its ghost copies (issue #13).
+---@param surface LuaSurface
+---@param area BoundingBox
+---@param entity LuaEntity
+---@return LuaEntity[]
+local function sibling_candidates(surface, area, entity)
+  local want_name, want_type = deghost_name(entity), deghost_type(entity)
+  local found = {}
+  for _, candidate in pairs(surface.find_entities_filtered{
+    area = area, force = entity.force.name,
+  }) do
+    if candidate.valid
+      and deghost_name(candidate) == want_name
+      and deghost_type(candidate) == want_type
+    then
+      found[#found + 1] = candidate
+    end
+  end
+  return found
+end
+
 ---@param event EventData.on_built_entity | EventData.on_entity_cloned | EventData.script_raised_built | EventData.script_raised_revive | EventData.on_cancelled_deconstruction | EventData.on_marked_for_deconstruction | EventData.on_player_mined_entity | EventData.on_player_rotated_entity | EventData.on_player_flipped_entity
 ---@param action any
 ---@param manual any
@@ -332,15 +355,12 @@ local function on_altered_entity(event, action, manual)
                 local proto = entity.type == "entity-ghost" and entity.ghost_prototype or entity.prototype
                 local snap = orbit.snapper(proto.tile_width or 1, proto.tile_height or 1)
                 local function occupied(position)
-                  local candidates = surface.find_entities_filtered{
-                    area = {{position.x - 0.6, position.y - 0.6},
-                            {position.x + 0.6, position.y + 0.6}},
-                    name = entity.name,
-                    type = entity.type,
-                    force = entity.force.name,
-                  }
+                  local candidates = sibling_candidates(surface, {
+                    {position.x - 0.6, position.y - 0.6},
+                    {position.x + 0.6, position.y + 0.6},
+                  }, entity)
                   for _, candidate in pairs(candidates) do
-                    if candidate.valid and candidate ~= entity then return candidate end
+                    if candidate ~= entity then return candidate end
                   end
                   return nil
                 end
@@ -411,13 +431,11 @@ local function on_altered_entity(event, action, manual)
                     end
                   end
                 elseif action == "destroy" or action == "deconstruct_canceled" or action == "deconstruct_marked" or action == "modify" then
-                  local found_entities = surface.find_entities_filtered{
-                    area = {{positions[n].x - 0.5, positions[n].y - 0.5}, {positions[n].x + 0.5, positions[n].y + 0.5}},
-                    name = entity.name,
-                    type = entity.type,
-                    force = entity.force.name,
-                  }
-                  if #found_entities then
+                  local found_entities = sibling_candidates(surface, {
+                    {positions[n].x - 0.5, positions[n].y - 0.5},
+                    {positions[n].x + 0.5, positions[n].y + 0.5},
+                  }, entity)
+                  if #found_entities > 0 then
                     for _, found_entity in ipairs(found_entities) do
                       if found_entity.valid then
                         if found_entity.position.x == positions[n].x and found_entity.position.y == positions[n].y then
@@ -425,7 +443,7 @@ local function on_altered_entity(event, action, manual)
                             if found_entity.mirroring == flips[n] then
                               if (not entity.supports_direction) or (found_entity.direction == directions[n]) then
                                 if found_entity ~= entity then
-                                  if entity.type ~= "entity-ghost" or found_entity.ghost_name == entity.ghost_name then
+                                  do
                                     if action == "destroy" or action == "deconstruct_canceled" or action == "deconstruct_marked" then
                                       if (cheat and action == "destroy") or entity.type == "entity-ghost" then
                                         found_entity.destroy()
@@ -534,6 +552,7 @@ script.on_configuration_changed(on_configuration_changed)
 if script.active_mods["factorio-test"] and script.active_mods["es-tests"] then
     require("__factorio-test__/init")({
         "test.ft.rotational",
+        "test.ft.ghosts",
     }, {
         load_luassert = true,
         game_speed = 100,

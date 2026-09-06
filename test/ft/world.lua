@@ -17,13 +17,15 @@ local next_patch = 0
 --- exercise the removal path -- the removal search filters by entity name, so it never
 --- matches a ghost. The mod owns both settings, so a fixture registered from the mod may
 --- write them.
----@param opts table {symmetry = integer, range = integer}
+---@param opts table {symmetry = integer, range = integer, cheat = boolean}
 function world.patch(opts)
     opts = opts or {}
     local surface = game.surfaces[1]
-    settings.global["entity-symmetry-allow-cheat"] = { value = true }
+    local cheat = opts.cheat
+    if cheat == nil then cheat = true end
+    settings.global["entity-symmetry-allow-cheat"] = { value = cheat }
     local player = game.players[1]
-    if player then player.mod_settings["entity-symmetry-cheat"] = { value = true } end
+    if player then player.mod_settings["entity-symmetry-cheat"] = { value = cheat } end
     next_patch = next_patch + 1
     local origin = { x = next_patch * 64, y = 0 }
     local half = 24
@@ -92,6 +94,18 @@ function world.patch(opts)
             if e.name == name or (e.name == "entity-ghost" and e.ghost_name == name) then
                 found[#found + 1] = e
             end
+        end
+        return found
+    end
+
+    --- Only the ghost copies.
+    function patch.ghosts(name)
+        name = name or world.SUBJECT
+        local found = {}
+        for _, e in pairs(surface.find_entities_filtered{
+            area = area, name = "entity-ghost", force = "player",
+        }) do
+            if e.ghost_name == name then found[#found + 1] = e end
         end
         return found
     end
