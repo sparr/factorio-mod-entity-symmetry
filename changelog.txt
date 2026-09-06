@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.11
+Date: 2026-09-06
+  Other:
+    - Add a test suite: unit specs for the direction maths, and in-game fixtures
+    - Move the direction maths to lib/geometry.lua so it can be tested
+---------------------------------------------------------------------------------------------------
 Version: 2.1.10
 Date: 2026-09-06
   Other:
