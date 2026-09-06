@@ -1,1 +1,3 @@
-entity-symmetry_*.zip
+*.zip
+.luarocks/
+node_modules/

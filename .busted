@@ -1,0 +1,4 @@
+return {
+    _all = { lpath = "./?.lua;./?/init.lua" },
+    default = { ROOT = { "test/spec" }, helper = "test.support.factorio" },
+}
