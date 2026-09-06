@@ -421,6 +421,13 @@ local function on_altered_entity(event, action, manual)
                     log(serpent.line(entity_def))
                     local new_entity = surface.create_entity(entity_def)
                     if new_entity then -- creation may have failed for duplicates/collisions
+                      -- Carry across whatever else the player had configured: combinator
+                      -- signals, splitter filters, inserter filters and the rest. The
+                      -- recipe is set through entity_def above because an assembler needs
+                      -- it at creation, but everything else is settings the game itself
+                      -- knows how to copy (issue #10). Guarded because not every entity
+                      -- type supports it.
+                      pcall(function() new_entity.copy_settings(entity) end)
                       if flip then
                         -- workaround for https://forums.factorio.com/viewtopic.php?f=7&t=117633
                         new_entity.mirroring = flip
@@ -553,6 +560,7 @@ if script.active_mods["factorio-test"] and script.active_mods["es-tests"] then
     require("__factorio-test__/init")({
         "test.ft.rotational",
         "test.ft.ghosts",
+        "test.ft.recipes",
     }, {
         load_luassert = true,
         game_speed = 100,

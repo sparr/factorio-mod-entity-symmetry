@@ -30,6 +30,12 @@ function world.patch(opts)
     local origin = { x = next_patch * 64, y = 0 }
     local half = 24
 
+    -- Patches march off along +x, and past the first few they land outside the chunks the
+    -- map generated at startup. set_tiles does nothing on an ungenerated chunk and a
+    -- blueprint will not stamp there, so ask for the ground first.
+    surface.request_to_generate_chunks(origin, 3)
+    surface.force_generate_chunk_requests()
+
     local area = {{ origin.x - half, origin.y - half }, { origin.x + half, origin.y + half }}
     local tiles = {}
     for x = origin.x - half, origin.x + half do
@@ -57,7 +63,7 @@ function world.patch(opts)
         })
     end
     signal("signal-S", opts.symmetry or 4)
-    signal("signal-D", opts.range or 32)
+    signal("signal-D", opts.range or 12)
 
     local patch = { surface = surface, origin = origin, centre = centre, area = area }
 
@@ -108,6 +114,52 @@ function world.patch(opts)
             if e.ghost_name == name then found[#found + 1] = e end
         end
         return found
+    end
+
+    --- Place a blueprint of `name` carrying `recipe`, as issue #10 describes. The source
+    --- entity is built far outside the centre's range so it is not itself mirrored, then
+    --- captured, removed, and the blueprint stamped down inside the patch.
+    function patch.build_blueprint(offset, name, configure)
+        local player = game.players[1]
+        -- Inside the patch, so the chunks are generated and the ground is clear, but
+        -- outside the centre's range so the source is not itself mirrored.
+        local far = { x = origin.x + 18, y = origin.y }
+        local source = surface.create_entity{
+            name = name, position = far, force = "player", raise_built = false,
+        }
+        assert(source, "could not create the blueprint source")
+        if configure then configure(source) end
+        assert(player.teleport(far, surface), "could not stand by the blueprint source")
+        player.cursor_stack.set_stack{ name = "blueprint" }
+        player.cursor_stack.create_blueprint{
+            surface = surface, force = "player",
+            area = {{ far.x - 3, far.y - 3 }, { far.x + 3, far.y + 3 }},
+        }
+        local captured = player.cursor_stack.get_blueprint_entities() or {}
+        source.destroy()
+        local position = { x = origin.x + offset.x, y = origin.y + offset.y }
+        assert(#captured > 0, "the blueprint captured nothing")
+        assert(player.teleport({ position.x, position.y + 3 }, surface),
+            "could not stand by the blueprint target")
+        player.build_from_cursor{ position = position }
+        player.cursor_stack.clear()
+        local placed = surface.find_entities_filtered{
+            area = {{ position.x - 12, position.y - 12 }, { position.x + 12, position.y + 12 }},
+        }
+        for _, e in pairs(placed) do
+            if e.name == name or (e.name == "entity-ghost" and e.ghost_name == name) then
+                return e
+            end
+        end
+        local count = #captured
+        local nearby = {}
+        for _, e in pairs(placed) do
+            nearby[#nearby + 1] = ("%s@%.1f,%.1f"):format(
+                e.name == "entity-ghost" and ("ghost:" .. e.ghost_name) or e.name,
+                e.position.x - position.x, e.position.y - position.y)
+        end
+        error(("the blueprint placed nothing at %d,%d (blueprint held %d entities; nearby: %s)")
+            :format(position.x, position.y, count, table.concat(nearby, " ")))
     end
 
     --- Mine an entity the way a player does, so the mod sees on_player_mined_entity.
