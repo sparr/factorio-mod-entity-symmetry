@@ -92,8 +92,11 @@ function world.patch(opts)
         assert(player, "no player to build with")
         local position = { x = origin.x + offset.x, y = origin.y + offset.y }
         -- Stand next to the build site: build_from_cursor obeys the character's build
-        -- range, so the player has to be within reach but not on the tile itself.
-        player.teleport({ position.x, position.y + 2 }, surface)
+        -- range, so the player has to be within reach but not standing in the footprint.
+        -- Big entities need more room -- a foundry is 5x5, and two tiles away is inside it.
+        local proto = prototypes.entity[name]
+        local clearance = math.ceil((proto and proto.tile_height or 1) / 2) + 2
+        player.teleport({ position.x, position.y + clearance }, surface)
         player.cursor_stack.set_stack{ name = name, count = 50 }
         player.build_from_cursor{ position = position }
         player.cursor_stack.clear()

@@ -142,12 +142,11 @@ local symmetric_rail_entity_types = {
   ["rail-support"]                = true,
 }
 
-local supports_mirroring = {
-  ["assembling-machine-1"] = true,
-  ["oil-refinery"]         = true,
-  ["chemical-plant"]       = true,
-  ["centrifuge"]           = true,
-}
+-- Which entities can be mirrored used to be a hardcoded list of four names here. It was
+-- wrong in both directions: it missed fifteen vanilla prototypes, including the foundry,
+-- the recycler, every inserter and all the mining drills, and it claimed two that cannot
+-- be mirrored at all. The caller now reads LuaEntityPrototype::use_mirroring and passes
+-- the answer in, which also covers modded entities.
 
 ---Type of the entity, or the entity inside an entity ghost
 ---@param entity LuaEntity
@@ -215,12 +214,12 @@ end
 ---@return defines.direction|integer|nil direction
 ---@return float orientation
 ---@return boolean flip whether the target should be flipped
-local function get_mirrotated_entity_dir_ori(entity_type, entity_name, dir, ori, sym_x, sym_y, sym_diag_1, sym_diag_2, reori)
+local function get_mirrotated_entity_dir_ori(entity_type, can_mirror, dir, ori, sym_x, sym_y, sym_diag_1, sym_diag_2, reori)
   local od_type = orientation_direction_types[entity_type]
   if od_type == nil then
     return 0, 0, false
   end
-  local flip = supports_mirroring[entity_name] and
+  local flip = can_mirror and
   (
     ( sym_x and 1 or 0 ) +
     ( sym_y and 1 or 0 ) +
@@ -317,7 +316,6 @@ return {
     orientation_snap = orientation_snap,
     rail_entity_types = rail_entity_types,
     symmetric_rail_entity_types = symmetric_rail_entity_types,
-    supports_mirroring = supports_mirroring,
     deghost_type = deghost_type,
     deghost_name = deghost_name,
     curved_rail_directions = curved_rail_directions,

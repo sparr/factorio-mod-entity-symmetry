@@ -4,11 +4,11 @@ local mirrotate = geometry.get_mirrotated_entity_dir_ori
 local N, NE, E, SE, S, SW, W, NW = 0, 2, 4, 6, 8, 10, 12, 14
 
 --- Signature reminder:
----   (entity_type, entity_name, dir, ori, sym_x, sym_y, sym_diag_1, sym_diag_2, reori)
+---   (entity_type, can_mirror, dir, ori, sym_x, sym_y, sym_diag_1, sym_diag_2, reori)
 --- returns dir, ori, flip
 local function plain(entity_type, dir, opts)
     opts = opts or {}
-    return mirrotate(entity_type, opts.name or "whatever", dir,
+    return mirrotate(entity_type, opts.can_mirror or false, dir,
         geometry.direction_to_orientation[dir] or 0,
         opts.x or false, opts.y or false, opts.d1 or false, opts.d2 or false,
         opts.reori or 0)
@@ -84,12 +84,12 @@ end)
 
 describe("the flip flag", function()
     it("is set for a mirrorable entity mirrored once", function()
-        local _, _, flip = plain("assembling-machine", N, { name = "chemical-plant", x = true })
+        local _, _, flip = plain("assembling-machine", N, { can_mirror = true, x = true })
         assert.is_true(flip)
     end)
 
     it("is clear for a mirrorable entity mirrored twice", function()
-        local _, _, flip = plain("assembling-machine", N, { name = "chemical-plant", x = true, y = true })
+        local _, _, flip = plain("assembling-machine", N, { can_mirror = true, x = true, y = true })
         assert.is_false(flip)
     end)
 

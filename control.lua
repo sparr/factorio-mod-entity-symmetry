@@ -63,6 +63,16 @@ end
 ---@param area BoundingBox
 ---@param entity LuaEntity
 ---@return LuaEntity[]
+---Whether an entity can have its fluid inputs mirrored, straight from the prototype
+---rather than a list this mod has to keep up to date (issue #10).
+---@param entity LuaEntity
+---@return boolean
+local function supports_mirroring(entity)
+  local proto = entity.type == "entity-ghost" and entity.ghost_prototype or entity.prototype
+  local ok, flag = pcall(function() return proto.use_mirroring end)
+  return (ok and flag) and true or false
+end
+
 local function sibling_candidates(surface, area, entity)
   local want_name, want_type = deghost_name(entity), deghost_type(entity)
   local found = {}
@@ -259,7 +269,7 @@ local function on_altered_entity(event, action, manual)
                     positions[#positions + 1] = new_position
                     local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
-                      deghost_name(entity),
+                      supports_mirroring(entity),
                       directions[n],
                       orientations[n],
                       true, false, false, false, 0
@@ -276,7 +286,7 @@ local function on_altered_entity(event, action, manual)
                     positions[#positions + 1] = new_position
                     local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
-                      deghost_name(entity),
+                      supports_mirroring(entity),
                       directions[n],
                       orientations[n],
                       false, true, false, false, 0
@@ -295,7 +305,7 @@ local function on_altered_entity(event, action, manual)
                     positions[#positions + 1] = new_position
                     local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
-                      deghost_name(entity),
+                      supports_mirroring(entity),
                       directions[n],
                       orientations[n],
                       false, false, true, false, 0
@@ -314,7 +324,7 @@ local function on_altered_entity(event, action, manual)
                     positions[#positions + 1] = new_position
                     local dir, ori, flip = get_mirrotated_entity_dir_ori(
                       deghost_type(entity),
-                      deghost_name(entity),
+                      supports_mirroring(entity),
                       directions[n],
                       orientations[n],
                       false, false, false, true, 0
@@ -333,7 +343,7 @@ local function on_altered_entity(event, action, manual)
                   )
                   local dir, ori = get_mirrotated_entity_dir_ori(
                     deghost_type(entity),
-                    deghost_name(entity),
+                    supports_mirroring(entity),
                     directions[1],
                     orientations[1],
                     false, false, false, false, r * (1 / rot_symmetry)
@@ -561,6 +571,7 @@ if script.active_mods["factorio-test"] and script.active_mods["es-tests"] then
         "test.ft.rotational",
         "test.ft.ghosts",
         "test.ft.recipes",
+        "test.ft.mirroring",
     }, {
         load_luassert = true,
         game_speed = 100,
