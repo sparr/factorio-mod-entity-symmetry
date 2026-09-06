@@ -1,0 +1,14 @@
+{
+  "name": "es-tests",
+  "version": "0.0.1",
+  "title": "Entity Symmetry test flag",
+  "author": "Sparr",
+  "contact": "sparr0@gmail.com",
+  "homepage": "https://github.com/sparr/factorio-mod-entity-symmetry/tree/master/test/ft/es-tests",
+  "factorio_version": "2.1",
+  "description": "Marker mod that switches on the Entity Symmetry integration fixtures. Published with the mod's source on GitHub, but never to the mod portal.",
+  "dependencies": [
+    "base",
+    "entity-symmetry"
+  ]
+}

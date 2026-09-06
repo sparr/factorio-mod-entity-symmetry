@@ -487,3 +487,14 @@ script.on_configuration_changed(on_configuration_changed)
 --   end
 -- end
 
+--- The integration tier, which runs inside a live game rather than against stubs.
+--- es-tests is never published, so this can never fire on a player's machine -- which
+--- matters, because info.json keeps test/ out of the package.
+if script.active_mods["factorio-test"] and script.active_mods["es-tests"] then
+    require("__factorio-test__/init")({
+        "test.ft.rotational",
+    }, {
+        load_luassert = true,
+        game_speed = 100,
+    })
+end
