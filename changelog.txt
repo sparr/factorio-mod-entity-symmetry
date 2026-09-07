@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.12
+Date: 2026-09-06
+  Bugfixes:
+    - Remove the symmetric copies for rotational symmetries other than 2 and 4
+    - Remove ghost copies along with the entity that produced them
+    - Carry combinator signals, splitter filters and other settings to the copies
+    - Mirror every building that supports it, rather than four hardcoded ones
+---------------------------------------------------------------------------------------------------
 Version: 2.1.11
 Date: 2026-09-06
   Other:
